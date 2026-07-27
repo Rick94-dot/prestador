@@ -643,9 +643,11 @@
 
       renderGoogleBlock(googleBlock, data);
     } catch (err) {
+      console.error("Erro na busca do Google Places:", err);
       googleBlock.innerHTML = `
         <p class="source-title error">Google Maps</p>
         <p class="error-text">Não foi possível encontrar este estabelecimento no Google Maps.</p>
+        <p class="error-text" style="opacity:0.7; margin-top:4px;">Detalhe: ${err.message}</p>
       `;
     }
   }
