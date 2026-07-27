@@ -556,33 +556,36 @@
     return data;
   }
 
-  function renderResults(minhaReceita, brasilApi) {
-    resultsEl.innerHTML = "";
-    resultsEl.appendChild(buildSourceBlock("MinhaReceita", minhaReceita, normalizeMinhaReceita));
-    resultsEl.appendChild(buildSourceBlock("BrasilAPI", brasilApi, normalizeBrasilAPI));
-    resultsEl.classList.add("visible");
-  }
+  function renderResults(minhaReceitaResult, brasilApiResult) {
+    const mr = minhaReceitaResult.status === "fulfilled" ? normalizeMinhaReceita(minhaReceitaResult.value) : {};
+    const ba = brasilApiResult.status === "fulfilled" ? normalizeBrasilAPI(brasilApiResult.value) : {};
 
-  function buildSourceBlock(title, settledResult, normalizeFn) {
+    // pega o primeiro valor não vazio entre as duas fontes, nessa ordem de prioridade
+    const pick = (key) => {
+      const v1 = mr[key];
+      const v2 = ba[key];
+      if (v1 !== undefined && v1 !== null && String(v1).trim() !== "") return v1;
+      if (v2 !== undefined && v2 !== null && String(v2).trim() !== "") return v2;
+      return "Não localizado";
+    };
+
+    const fields = [
+      ["Razão social", pick("razaoSocial")],
+      ["Nome fantasia", pick("nomeFantasia")],
+      ["Situação cadastral", pick("situacaoCadastral")],
+      ["Atividade principal", pick("atividadePrincipal")],
+      ["Endereço", pick("endereco")],
+      ["CEP", formatCEP(pick("cep"))],
+      ["Telefone", formatPhone(pick("telefone"))],
+      ["E-mail", pick("email")]
+    ];
+
+    resultsEl.innerHTML = "";
+
     const block = document.createElement("div");
     block.className = "source-block";
 
-    if (settledResult.status === "rejected") {
-      block.innerHTML = `
-        <p class="source-title error">${title}</p>
-        <p class="error-text">Não foi possível consultar esta fonte agora.</p>
-      `;
-      return block;
-    }
-
-    const data = normalizeFn(settledResult.value);
-    const titleEl = document.createElement("p");
-    titleEl.className = "source-title";
-    titleEl.textContent = title;
-    block.appendChild(titleEl);
-
-    data.forEach(([label, value]) => {
-      if (!value) return;
+    fields.forEach(([label, value]) => {
       const row = document.createElement("div");
       row.className = "data-row";
       row.innerHTML = `
@@ -592,35 +595,36 @@
       block.appendChild(row);
     });
 
-    return block;
+    resultsEl.appendChild(block);
+    resultsEl.classList.add("visible");
   }
 
-  // organiza os campos que vêm da API MinhaReceita
+  // organiza os campos que vêm da API MinhaReceita em um formato comum
   function normalizeMinhaReceita(d) {
-    return [
-      ["Razão social", d.razao_social],
-      ["Nome fantasia", d.nome_fantasia],
-      ["Situação cadastral", d.descricao_situacao_cadastral],
-      ["Atividade principal", d.cnae_fiscal_descricao],
-      ["Porte", d.porte?.descricao || d.descricao_porte],
-      ["Endereço", formatEndereco(d.logradouro, d.numero, d.municipio, d.uf)],
-      ["CEP", d.cep],
-      ["Telefone", d.ddd_telefone_1]
-    ];
+    return {
+      razaoSocial: d.razao_social,
+      nomeFantasia: d.nome_fantasia,
+      situacaoCadastral: d.descricao_situacao_cadastral,
+      atividadePrincipal: d.cnae_fiscal_descricao,
+      endereco: formatEndereco(d.logradouro, d.numero, d.municipio, d.uf),
+      cep: d.cep,
+      telefone: d.ddd_telefone_1,
+      email: d.email
+    };
   }
 
-  // organiza os campos que vêm da BrasilAPI
+  // organiza os campos que vêm da BrasilAPI em um formato comum
   function normalizeBrasilAPI(d) {
-    return [
-      ["Razão social", d.razao_social],
-      ["Nome fantasia", d.nome_fantasia],
-      ["Situação cadastral", d.descricao_situacao_cadastral],
-      ["Atividade principal", d.cnae_fiscal_descricao],
-      ["Porte", d.descricao_porte],
-      ["Endereço", formatEndereco(d.logradouro, d.numero, d.municipio, d.uf)],
-      ["CEP", d.cep],
-      ["Telefone", d.ddd_telefone_1]
-    ];
+    return {
+      razaoSocial: d.razao_social,
+      nomeFantasia: d.nome_fantasia,
+      situacaoCadastral: d.descricao_situacao_cadastral,
+      atividadePrincipal: d.cnae_fiscal_descricao,
+      endereco: formatEndereco(d.logradouro, d.numero, d.municipio, d.uf),
+      cep: d.cep,
+      telefone: d.ddd_telefone_1,
+      email: d.email
+    };
   }
 
   function formatEndereco(logradouro, numero, municipio, uf) {
@@ -629,6 +633,29 @@
       [municipio, uf].filter(Boolean).join(" - ")
     ].filter(Boolean);
     return parts.join(" · ");
+  }
+
+  // formata CEP como 00000-000
+  function formatCEP(value) {
+    if (!value || value === "Não localizado") return value;
+    const digits = String(value).replace(/\D/g, "");
+    if (digits.length !== 8) return value;
+    return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+  }
+
+  // formata telefone como (XX)XXXXX-XXXX (celular, 11 dígitos)
+  // ou (XX)XXXX-XXXX (fixo, 10 dígitos)
+  function formatPhone(value) {
+    if (!value || value === "Não localizado") return value;
+    const digits = String(value).replace(/\D/g, "");
+
+    if (digits.length === 11) {
+      return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
+    }
+    if (digits.length === 10) {
+      return `(${digits.slice(0, 2)})${digits.slice(2, 6)}-${digits.slice(6)}`;
+    }
+    return value;
   }
 </script>
 
