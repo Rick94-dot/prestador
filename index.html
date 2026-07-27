@@ -380,6 +380,32 @@
     color: #eaf6ff;
   }
 
+  .accessibility-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    padding: 6px 11px;
+    border-radius: 20px;
+    background: rgba(127, 196, 255, 0.08);
+    border: 1px solid rgba(127, 196, 255, 0.18);
+    color: #cfe3f2;
+  }
+
+  .accessibility-badge.yes {
+    color: rgba(110, 230, 180, 0.9);
+    border-color: rgba(110, 230, 180, 0.3);
+  }
+
+  .accessibility-badge.no {
+    color: rgba(255, 150, 150, 0.85);
+    border-color: rgba(255, 120, 120, 0.25);
+  }
+
+  .accessibility-badge.unknown {
+    color: #7a94a8;
+  }
+
   .photos-row {
     display: flex;
     gap: 8px;
@@ -772,7 +798,13 @@
           `).join("")}
         </div>
       `
-      : `<p class="transport-title">Fotos dos clientes</p><p class="error-text" style="color:#8fb3d1;">Nenhuma foto disponível para este estabelecimento.</p>`;
+      : `
+        <p class="transport-title">Fotos dos clientes</p>
+        <p class="error-text" style="color:#8fb3d1;">
+          A API do Google não disponibilizou fotos para este estabelecimento.
+          ${data.linkGoogleMaps ? `<a href="${data.linkGoogleMaps}" target="_blank" rel="noopener" style="color:#7fc4ff;">Ver no Google Maps →</a>` : ""}
+        </p>
+      `;
 
     container.innerHTML = `
       <p class="source-title">Google Maps</p>
@@ -789,6 +821,7 @@
         ${transporteBadge("🚆", data.transporte.estacoesTrem, "Trem")}
         ${transporteBadge("🚇", data.transporte.estacoesMetro, "Metrô")}
       </div>
+      ${buildAccessibilityBadges(data.acessibilidade)}
       ${photosHtml}
     `;
 
@@ -805,6 +838,30 @@
 
   // monta a lista de horários em linhas alinhadas (dia à esquerda, horário à direita),
   // destacando o dia de hoje
+  // monta os badges de acessibilidade: sim (verde), não (vermelho) ou não informado (neutro)
+  function buildAccessibilityBadges(acessibilidade) {
+    const itens = [
+      ["♿", acessibilidade.entradaAcessivel, "Entrada"],
+      ["🅿️", acessibilidade.estacionamentoAcessivel, "Estacionamento"],
+      ["🚻", acessibilidade.banheiroAcessivel, "Banheiro"],
+      ["💺", acessibilidade.assentosAcessiveis, "Assentos"]
+    ];
+
+    const badges = itens.map(([icon, valor, label]) => {
+      let statusClass, statusText;
+      if (valor === true) { statusClass = "yes"; statusText = "Sim"; }
+      else if (valor === false) { statusClass = "no"; statusText = "Não"; }
+      else { statusClass = "unknown"; statusText = "Não informado"; }
+
+      return `<span class="accessibility-badge ${statusClass}">${icon} ${label}: <strong>${statusText}</strong></span>`;
+    }).join("");
+
+    return `
+      <p class="transport-title">Acessibilidade</p>
+      <div class="transport-row">${badges}</div>
+    `;
+  }
+
   function buildHoursList(weekdayDescriptions) {
     if (!weekdayDescriptions?.length) {
       return `<p class="error-text" style="color:#8fb3d1;">Horário não informado</p>`;
