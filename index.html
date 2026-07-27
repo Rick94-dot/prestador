@@ -295,7 +295,7 @@
       // ciclo: waiting -> connecting -> flowing -> disconnecting -> waiting ...
       state: "waiting",
       timer: 0,
-      waitDuration: index * 0.35 + Math.random() * 1.2, // atraso inicial escalonado
+      waitDuration: 0, // todas começam juntas na primeira vez
       connectDuration: 1.4 + Math.random() * 0.5,
       flowDuration: 4 + Math.random() * 3,
       disconnectDuration: 1.0 + Math.random() * 0.4,
