@@ -260,9 +260,9 @@
 
   .rating-row {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
-    margin-bottom: 10px;
+    margin-bottom: 14px;
   }
 
   .rating-score {
@@ -278,7 +278,8 @@
 
   .open-badge {
     font-size: 11px;
-    padding: 2px 8px;
+    font-weight: 600;
+    padding: 3px 10px;
     border-radius: 20px;
     margin-left: auto;
   }
@@ -293,22 +294,83 @@
     color: rgba(255, 120, 120, 0.9);
   }
 
+  .hours-title {
+    font-size: 11px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: #8fb3d1;
+    margin: 0 0 6px;
+  }
+
   .hours-list {
-    font-size: 12px;
-    color: #cfe3f2;
-    line-height: 1.7;
-    margin: 8px 0;
-    padding-left: 0;
+    margin: 0 0 4px;
+    padding: 0;
     list-style: none;
+  }
+
+  .hours-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 12.5px;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .hours-list li:last-child {
+    border-bottom: none;
+  }
+
+  .hours-list .day-name {
+    color: #9fc3dd;
+    text-transform: capitalize;
+    white-space: nowrap;
+  }
+
+  .hours-list .day-hours {
+    color: #eaf6ff;
+    text-align: right;
+  }
+
+  .hours-list li.today .day-name,
+  .hours-list li.today .day-hours {
+    color: #7fc4ff;
+    font-weight: 600;
+  }
+
+  .hours-list .closed-text {
+    color: rgba(255, 150, 150, 0.75);
+  }
+
+  .transport-title {
+    font-size: 11px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: #8fb3d1;
+    margin: 14px 0 8px;
   }
 
   .transport-row {
     display: flex;
-    gap: 14px;
+    gap: 8px;
     flex-wrap: wrap;
-    font-size: 12.5px;
+  }
+
+  .transport-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    padding: 6px 11px;
+    border-radius: 20px;
+    background: rgba(127, 196, 255, 0.08);
+    border: 1px solid rgba(127, 196, 255, 0.18);
     color: #cfe3f2;
-    margin-top: 10px;
+  }
+
+  .transport-badge .count {
+    font-weight: 700;
+    color: #eaf6ff;
   }
 
   .photos-row {
