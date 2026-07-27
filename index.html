@@ -382,13 +382,24 @@
     padding-bottom: 4px;
   }
 
+  .photos-row a {
+    display: block;
+    flex-shrink: 0;
+  }
+
   .photos-row img {
     height: 72px;
     width: 96px;
     object-fit: cover;
     border-radius: 8px;
     border: 1px solid rgba(127, 196, 255, 0.2);
-    flex-shrink: 0;
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+
+  .photos-row img:hover {
+    transform: scale(1.05);
+    border-color: rgba(127, 196, 255, 0.5);
   }
 </style>
 </head>
@@ -731,8 +742,17 @@
     };
 
     const photosHtml = data.fotos?.length
-      ? `<div class="photos-row">${data.fotos.map((f) => `<img src="${API_BASE_URL}${f.url}" loading="lazy" alt="Foto do estabelecimento" />`).join("")}</div>`
-      : "";
+      ? `
+        <p class="transport-title">Fotos dos clientes (${data.fotos.length})</p>
+        <div class="photos-row">
+          ${data.fotos.map((f) => `
+            <a href="${API_BASE_URL}${f.url}&maxwidth=1200" target="_blank" rel="noopener">
+              <img src="${API_BASE_URL}${f.url}" loading="lazy" alt="Foto do estabelecimento" />
+            </a>
+          `).join("")}
+        </div>
+      `
+      : `<p class="transport-title">Fotos dos clientes</p><p class="error-text" style="color:#8fb3d1;">Nenhuma foto disponível para este estabelecimento.</p>`;
 
     container.innerHTML = `
       <p class="source-title">Google Maps</p>
