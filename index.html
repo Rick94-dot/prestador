@@ -2,8 +2,11 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>Globo Terrestre Conectado</title>
+<title>ÍCARO</title>
 <style>
+  * {
+    box-sizing: border-box;
+  }
   html, body {
     margin: 0;
     padding: 0;
@@ -11,13 +14,161 @@
     height: 100%;
     background: #000005;
     overflow: hidden;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   }
   canvas {
     display: block;
   }
+
+  /* ============ OVERLAY CENTRAL ============ */
+  #overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none; /* deixa o globo "respirar" atrás, só o card recebe clique */
+  }
+
+  #card {
+    pointer-events: auto;
+    width: min(90vw, 420px);
+    padding: 40px 36px 34px;
+    border-radius: 18px;
+    background: rgba(8, 16, 28, 0.55);
+    border: 1px solid rgba(127, 196, 255, 0.25);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow:
+      0 0 40px rgba(58, 123, 213, 0.15),
+      0 20px 60px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    text-align: center;
+  }
+
+  #logo {
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: 6px;
+    color: #eaf6ff;
+    margin: 0 0 4px;
+    text-shadow: 0 0 18px rgba(127, 196, 255, 0.55);
+  }
+
+  #subtitle {
+    font-size: 12.5px;
+    letter-spacing: 1.5px;
+    color: #7fa8c9;
+    margin: 0 0 30px;
+    text-transform: uppercase;
+  }
+
+  #cnpj-label {
+    display: block;
+    text-align: left;
+    font-size: 12.5px;
+    color: #9fc3dd;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+  }
+
+  #cnpj-input {
+    width: 100%;
+    padding: 13px 14px;
+    font-size: 16px;
+    letter-spacing: 0.5px;
+    border-radius: 10px;
+    border: 1px solid rgba(127, 196, 255, 0.3);
+    background: rgba(255, 255, 255, 0.04);
+    color: #eaf6ff;
+    outline: none;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  }
+
+  #cnpj-input::placeholder {
+    color: rgba(200, 225, 245, 0.35);
+  }
+
+  #cnpj-input:focus {
+    border-color: rgba(127, 196, 255, 0.7);
+    box-shadow: 0 0 0 3px rgba(58, 123, 213, 0.2);
+  }
+
+  #cnpj-input.invalid {
+    border-color: rgba(255, 99, 99, 0.6);
+  }
+
+  #cnpj-input.valid {
+    border-color: rgba(110, 230, 180, 0.7);
+  }
+
+  #feedback {
+    min-height: 18px;
+    font-size: 12px;
+    margin-top: 8px;
+    text-align: left;
+    color: rgba(255, 120, 120, 0.85);
+    transition: color 0.2s ease;
+  }
+
+  #feedback.ok {
+    color: rgba(110, 230, 180, 0.85);
+  }
+
+  #search-btn {
+    width: 100%;
+    margin-top: 22px;
+    padding: 13px 14px;
+    font-size: 14.5px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-radius: 10px;
+    border: none;
+    cursor: not-allowed;
+    color: rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.06);
+    transition: all 0.3s ease;
+  }
+
+  #search-btn.enabled {
+    cursor: pointer;
+    color: #04141f;
+    background: linear-gradient(135deg, #7fc4ff, #3a7bd5);
+    box-shadow: 0 0 22px rgba(58, 123, 213, 0.55);
+  }
+
+  #search-btn.enabled:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 0 30px rgba(58, 123, 213, 0.75);
+  }
+
+  #search-btn.enabled:active {
+    transform: scale(0.98);
+  }
 </style>
 </head>
 <body>
+
+<div id="overlay">
+  <div id="card">
+    <p id="logo">ÍCARO</p>
+    <p id="subtitle">Consulta de CNPJ</p>
+
+    <label id="cnpj-label" for="cnpj-input">CNPJ</label>
+    <input
+      id="cnpj-input"
+      type="text"
+      inputmode="numeric"
+      placeholder="00.000.000/0000-00"
+      maxlength="18"
+      autocomplete="off"
+    />
+    <div id="feedback"></div>
+
+    <button id="search-btn" type="button" disabled>Buscar</button>
+  </div>
+</div>
 
 <script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
 <script>
@@ -141,201 +292,6 @@
   }
   scene.add(createStars());
 
-  // ============ LAT/LON -> 3D ============
-  function latLonToVector3(lat, lon, radius) {
-    const phi = (90 - lat) * (Math.PI / 180);
-    const theta = (lon + 180) * (Math.PI / 180);
-    return new THREE.Vector3(
-      -radius * Math.sin(phi) * Math.cos(theta),
-      radius * Math.cos(phi),
-      radius * Math.sin(phi) * Math.sin(theta)
-    );
-  }
-
-  // ============ HUBS DE CONEXÃO ============
-  const cities = {
-    novaYork:   [40.7, -74.0],
-    londres:    [51.5, -0.12],
-    toquio:     [35.6, 139.7],
-    saoPaulo:   [-23.5, -46.6],
-    sydney:     [-33.8, 151.2],
-    frankfurt:  [50.1, 8.68],
-    singapura:  [1.35, 103.8],
-    mumbai:     [19.0, 72.8],
-    losAngeles: [34.0, -118.2],
-    joanesburgo:[-26.2, 28.0]
-  };
-
-  const connections = [
-    ["novaYork", "londres"],
-    ["londres", "frankfurt"],
-    ["frankfurt", "mumbai"],
-    ["mumbai", "singapura"],
-    ["singapura", "toquio"],
-    ["singapura", "sydney"],
-    ["toquio", "losAngeles"],
-    ["losAngeles", "novaYork"],
-    ["saoPaulo", "novaYork"],
-    ["saoPaulo", "londres"],
-    ["joanesburgo", "londres"],
-    ["joanesburgo", "singapura"]
-  ];
-
-  const cityKeys = Object.keys(cities);
-  function pickRandomPair(avoidA, avoidB) {
-    let a, b;
-    do {
-      a = cityKeys[Math.floor(Math.random() * cityKeys.length)];
-      b = cityKeys[Math.floor(Math.random() * cityKeys.length)];
-    } while (a === b || (a === avoidA && b === avoidB) || (a === avoidB && b === avoidA));
-    return [a, b];
-  }
-
-  // ============ MARCADORES DAS CIDADES ============
-  const markerGroup = new THREE.Group();
-  worldGroup.add(markerGroup);
-  const markers = [];
-
-  Object.values(cities).forEach((coords) => {
-    const pos = latLonToVector3(coords[0], coords[1], EARTH_RADIUS * 1.005);
-
-    const markerGeo = new THREE.SphereGeometry(0.008, 8, 8);
-    const markerMat = new THREE.MeshBasicMaterial({ color: 0xffd27f });
-    const marker = new THREE.Mesh(markerGeo, markerMat);
-    marker.position.copy(pos);
-    markerGroup.add(marker);
-
-    const ringGeo = new THREE.RingGeometry(0.01, 0.016, 24);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0xffd27f,
-      transparent: true,
-      opacity: 0.4,
-      side: THREE.DoubleSide,
-      depthWrite: false
-    });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.position.copy(pos);
-    ring.lookAt(pos.clone().multiplyScalar(2));
-    markerGroup.add(ring);
-
-    markers.push({ ring, phase: Math.random() * Math.PI * 2 });
-  });
-
-  // ============ ROTAS DE CONEXÃO ============
-  // Cada rota tem:
-  //  - uma linha base que "se desenha" do zero até o destino (animação de conexão)
-  //  - depois de conectada, um pulso tipo cometa flui continuamente por ela
-  const arcGroup = new THREE.Group();
-  worldGroup.add(arcGroup);
-  const arcsData = [];
-
-  const SEGMENTS = 96;
-
-  // recalcula a curva/pontos de uma rota (usado tanto na criação quanto ao reconectar)
-  function computeArcPoints(startKey, endKey) {
-    const start = latLonToVector3(cities[startKey][0], cities[startKey][1], EARTH_RADIUS * 1.005);
-    const end = latLonToVector3(cities[endKey][0], cities[endKey][1], EARTH_RADIUS * 1.005);
-
-    const distance = start.distanceTo(end);
-    const mid = start.clone().add(end).multiplyScalar(0.5);
-    mid.normalize().multiplyScalar(EARTH_RADIUS * (1.05 + distance * 0.18));
-
-    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-    const points = curve.getPoints(SEGMENTS);
-    return { curve, points };
-  }
-
-  function createArc(startKey, endKey, index) {
-    const { curve, points } = computeArcPoints(startKey, endKey);
-
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    geometry.setDrawRange(0, 0); // começa "desconectada"
-    const material = new THREE.LineBasicMaterial({
-      color: 0x7fc4ff,
-      transparent: true,
-      opacity: 0.28
-    });
-    const line = new THREE.Line(geometry, material);
-    arcGroup.add(line);
-
-    const tipGeo = new THREE.SphereGeometry(0.012, 8, 8);
-    const tipMat = new THREE.MeshBasicMaterial({
-      color: 0xcfe9ff,
-      transparent: true,
-      opacity: 0
-    });
-    const tip = new THREE.Mesh(tipGeo, tipMat);
-    arcGroup.add(tip);
-
-    const tailOffsets = [0, -0.02, -0.04, -0.06, -0.08];
-    const tailOpacities = [1, 0.55, 0.32, 0.16, 0.06];
-    const tailSizes = [0.011, 0.009, 0.007, 0.005, 0.004];
-    const tail = tailOffsets.map((offset, i) => {
-      const geo = new THREE.SphereGeometry(tailSizes[i], 6, 6);
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0xcfe9ff,
-        transparent: true,
-        opacity: 0
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      arcGroup.add(mesh);
-      return { mesh, offset, baseOpacity: tailOpacities[i] };
-    });
-
-    arcsData.push({
-      startKey,
-      endKey,
-      curve,
-      points,
-      geometry,
-      tip,
-      tail,
-      totalPoints: points.length,
-
-      // ciclo: waiting -> connecting -> flowing -> disconnecting -> waiting ...
-      state: "waiting",
-      timer: 0,
-      waitDuration: 0, // todas começam juntas na primeira vez
-      connectDuration: 1.4 + Math.random() * 0.5,
-      flowDuration: 4 + Math.random() * 3,
-      disconnectDuration: 1.0 + Math.random() * 0.4,
-
-      flowT: -0.15,
-      flowSpeed: 0.06 + Math.random() * 0.05
-    });
-  }
-
-  // regenera a rota com um novo par de cidades (dá variedade ao "renascer")
-  function regenerateArc(arc) {
-    if (Math.random() < 0.6) {
-      const [a, b] = pickRandomPair(arc.startKey, arc.endKey);
-      arc.startKey = a;
-      arc.endKey = b;
-    }
-    const { curve, points } = computeArcPoints(arc.startKey, arc.endKey);
-    arc.curve = curve;
-    arc.points = points;
-
-    const posAttr = arc.geometry.attributes.position;
-    for (let i = 0; i < points.length; i++) {
-      posAttr.setXYZ(i, points[i].x, points[i].y, points[i].z);
-    }
-    posAttr.needsUpdate = true;
-    arc.geometry.setDrawRange(0, 0);
-
-    arc.connectDuration = 1.4 + Math.random() * 0.5;
-    arc.flowDuration = 4 + Math.random() * 3;
-    arc.disconnectDuration = 1.0 + Math.random() * 0.4;
-    arc.flowSpeed = 0.06 + Math.random() * 0.05;
-    arc.flowT = -0.15;
-  }
-
-  function hideTail(arc) {
-    arc.tail.forEach((seg) => { seg.mesh.material.opacity = 0; });
-  }
-
-  connections.forEach(([a, b], i) => createArc(a, b, i));
-
   // ============ RESPONSIVIDADE ============
   window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -344,111 +300,115 @@
   });
 
   // ============ ANIMAÇÃO ============
-  const clock = new THREE.Clock();
-
   function animate() {
     requestAnimationFrame(animate);
-    const elapsed = clock.getElapsedTime();
-    const delta = clock.getDelta();
-
     worldGroup.rotation.y += 0.0012;
     clouds.rotation.y += 0.0004;
-
-    // anéis das cidades pulsando
-    markers.forEach((m) => {
-      const s = 1 + 0.25 * Math.sin(elapsed * 1.4 + m.phase);
-      m.ring.scale.set(s, s, s);
-      m.ring.material.opacity = 0.35 - 0.2 * Math.sin(elapsed * 1.4 + m.phase);
-    });
-
-    arcsData.forEach((arc) => {
-      arc.timer += delta;
-
-      switch (arc.state) {
-
-        case "waiting": {
-          // rota invisível, aguardando para (re)conectar
-          arc.geometry.setDrawRange(0, 0);
-          arc.tip.material.opacity = 0;
-          hideTail(arc);
-
-          if (arc.timer >= arc.waitDuration) {
-            arc.state = "connecting";
-            arc.timer = 0;
-          }
-          break;
-        }
-
-        case "connecting": {
-          // linha se desenhando do início ao fim, com ponta brilhante
-          const progress = Math.min(arc.timer / arc.connectDuration, 1);
-          const count = Math.floor(progress * arc.totalPoints);
-          arc.geometry.setDrawRange(0, count);
-
-          const idx = Math.min(count, arc.totalPoints - 1);
-          arc.tip.position.copy(arc.points[idx]);
-          arc.tip.material.opacity = 0.9;
-
-          if (progress >= 1) {
-            arc.state = "flowing";
-            arc.timer = 0;
-            arc.tip.material.opacity = 0;
-            arc.flowT = -0.15;
-          }
-          break;
-        }
-
-        case "flowing": {
-          // linha conectada, pulso tipo cometa fluindo continuamente
-          arc.flowT += delta * arc.flowSpeed;
-          if (arc.flowT > 1.15) arc.flowT = -0.15;
-
-          arc.tail.forEach((seg) => {
-            const t = arc.flowT + seg.offset;
-            if (t < 0 || t > 1) {
-              seg.mesh.material.opacity = 0;
-              return;
-            }
-            seg.mesh.position.copy(arc.curve.getPoint(t));
-            const edgeFade = Math.min(1, Math.min(t, 1 - t) * 12);
-            seg.mesh.material.opacity = seg.baseOpacity * edgeFade;
-          });
-
-          if (arc.timer >= arc.flowDuration) {
-            arc.state = "disconnecting";
-            arc.timer = 0;
-            hideTail(arc);
-          }
-          break;
-        }
-
-        case "disconnecting": {
-          // linha "recolhendo" a partir da origem, depois some
-          const progress = Math.min(arc.timer / arc.disconnectDuration, 1);
-          const startIdx = Math.floor(progress * arc.totalPoints);
-          const count = Math.max(arc.totalPoints - startIdx, 0);
-          arc.geometry.setDrawRange(startIdx, count);
-
-          const idx = Math.min(startIdx, arc.totalPoints - 1);
-          arc.tip.position.copy(arc.points[idx]);
-          arc.tip.material.opacity = 0.9 * (1 - progress * 0.5);
-
-          if (progress >= 1) {
-            arc.geometry.setDrawRange(0, 0);
-            arc.tip.material.opacity = 0;
-            regenerateArc(arc); // às vezes troca de par de cidades
-            arc.state = "waiting";
-            arc.timer = 0;
-            arc.waitDuration = 0.4 + Math.random() * 1.6;
-          }
-          break;
-        }
-      }
-    });
-
     renderer.render(scene, camera);
   }
   animate();
+</script>
+
+<script>
+  // ============ FORMULÁRIO DE CNPJ ============
+  const input = document.getElementById("cnpj-input");
+  const feedback = document.getElementById("feedback");
+  const button = document.getElementById("search-btn");
+
+  // aplica a máscara 00.000.000/0000-00 enquanto o usuário digita
+  function maskCNPJ(value) {
+    const digits = value.replace(/\D/g, "").slice(0, 14);
+    let masked = digits;
+
+    masked = masked.replace(/^(\d{2})(\d)/, "$1.$2");
+    masked = masked.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3");
+    masked = masked.replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4");
+    masked = masked.replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, "$1.$2.$3/$4-$5");
+
+    return masked;
+  }
+
+  // valida os dígitos verificadores do CNPJ (algoritmo módulo 11 oficial)
+  function isValidCNPJ(rawValue) {
+    const cnpj = rawValue.replace(/\D/g, "");
+
+    if (cnpj.length !== 14) return false;
+    if (/^(\d)\1{13}$/.test(cnpj)) return false; // rejeita sequências tipo 11111111111111
+
+    const calcCheckDigit = (base) => {
+      const weights = base.length === 12
+        ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+        : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+
+      const sum = base
+        .split("")
+        .reduce((acc, digit, i) => acc + parseInt(digit, 10) * weights[i], 0);
+
+      const remainder = sum % 11;
+      return remainder < 2 ? 0 : 11 - remainder;
+    };
+
+    const base12 = cnpj.slice(0, 12);
+    const digit1 = calcCheckDigit(base12);
+    const digit2 = calcCheckDigit(base12 + digit1);
+
+    return cnpj === base12 + String(digit1) + String(digit2);
+  }
+
+  function updateState() {
+    const raw = input.value.replace(/\D/g, "");
+
+    if (raw.length === 0) {
+      feedback.textContent = "";
+      feedback.classList.remove("ok");
+      input.classList.remove("valid", "invalid");
+      setButtonEnabled(false);
+      return;
+    }
+
+    if (raw.length < 14) {
+      feedback.textContent = "CNPJ incompleto";
+      feedback.classList.remove("ok");
+      input.classList.remove("valid");
+      input.classList.add("invalid");
+      setButtonEnabled(false);
+      return;
+    }
+
+    if (isValidCNPJ(raw)) {
+      feedback.textContent = "CNPJ válido";
+      feedback.classList.add("ok");
+      input.classList.remove("invalid");
+      input.classList.add("valid");
+      setButtonEnabled(true);
+    } else {
+      feedback.textContent = "CNPJ inválido";
+      feedback.classList.remove("ok");
+      input.classList.remove("valid");
+      input.classList.add("invalid");
+      setButtonEnabled(false);
+    }
+  }
+
+  function setButtonEnabled(enabled) {
+    button.disabled = !enabled;
+    button.classList.toggle("enabled", enabled);
+  }
+
+  input.addEventListener("input", (e) => {
+    const cursorAtEnd = e.target.selectionStart === e.target.value.length;
+    e.target.value = maskCNPJ(e.target.value);
+    if (cursorAtEnd) {
+      e.target.selectionStart = e.target.selectionEnd = e.target.value.length;
+    }
+    updateState();
+  });
+
+  button.addEventListener("click", () => {
+    if (button.disabled) return;
+    // ponto de integração: aqui entra a chamada para a API de consulta
+    console.log("Buscando CNPJ:", input.value);
+  });
 </script>
 
 </body>
