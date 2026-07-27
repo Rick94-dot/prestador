@@ -248,6 +248,85 @@
     font-size: 12.5px;
     color: rgba(255, 150, 150, 0.85);
   }
+
+  /* ============ BLOCO GOOGLE MAPS ============ */
+  .google-block {
+    margin-top: 18px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(127, 196, 255, 0.15);
+  }
+
+  .rating-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .rating-score {
+    font-size: 22px;
+    font-weight: 700;
+    color: #ffd76a;
+  }
+
+  .rating-count {
+    font-size: 12.5px;
+    color: #8fb3d1;
+  }
+
+  .open-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    margin-left: auto;
+  }
+
+  .open-badge.open {
+    background: rgba(110, 230, 180, 0.15);
+    color: rgba(110, 230, 180, 0.9);
+  }
+
+  .open-badge.closed {
+    background: rgba(255, 120, 120, 0.15);
+    color: rgba(255, 120, 120, 0.9);
+  }
+
+  .hours-list {
+    font-size: 12px;
+    color: #cfe3f2;
+    line-height: 1.7;
+    margin: 8px 0;
+    padding-left: 0;
+    list-style: none;
+  }
+
+  .transport-row {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: #cfe3f2;
+    margin-top: 10px;
+  }
+
+  .photos-row {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    margin-top: 12px;
+    padding-bottom: 4px;
+  }
+
+  .photos-row img {
+    height: 72px;
+    width: 96px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid rgba(127, 196, 255, 0.2);
+    flex-shrink: 0;
+  }
 </style>
 </head>
 <body>
@@ -539,8 +618,73 @@
     loadingEl.classList.remove("visible");
     setButtonEnabled(true);
 
-    renderResults(minhaReceita, brasilApi);
+    const merged = renderResults(minhaReceita, brasilApi);
+
+    // com o nome e endereço em mãos, busca os dados do Google Maps
+    if (merged.nomeParaBusca && merged.enderecoParaBusca) {
+      await buscarGooglePlaces(merged.nomeParaBusca, merged.enderecoParaBusca);
+    }
   });
+
+  async function buscarGooglePlaces(nome, endereco) {
+    const googleBlock = document.createElement("div");
+    googleBlock.className = "google-block";
+    googleBlock.innerHTML = `<p class="source-title">Google Maps</p><p class="error-text" style="color:#8fb3d1;">Buscando dados do Google...</p>`;
+    resultsEl.appendChild(googleBlock);
+
+    try {
+      const url = `${API_BASE_URL}/api/google-places?nome=${encodeURIComponent(nome)}&endereco=${encodeURIComponent(endereco)}`;
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (!response.ok || !data.encontrado) {
+        throw new Error(data.error || "Estabelecimento não encontrado no Google.");
+      }
+
+      renderGoogleBlock(googleBlock, data);
+    } catch (err) {
+      googleBlock.innerHTML = `
+        <p class="source-title error">Google Maps</p>
+        <p class="error-text">Não foi possível encontrar este estabelecimento no Google Maps.</p>
+      `;
+    }
+  }
+
+  function renderGoogleBlock(container, data) {
+    const rating = data.nota != null ? data.nota.toFixed(1) : "—";
+    const totalAvaliacoes = data.totalAvaliacoes != null ? `${data.totalAvaliacoes} avaliações` : "sem avaliações";
+
+    let openBadge = "";
+    if (data.abertoAgora === true) openBadge = `<span class="open-badge open">Aberto agora</span>`;
+    else if (data.abertoAgora === false) openBadge = `<span class="open-badge closed">Fechado agora</span>`;
+
+    const hoursHtml = data.horarioFuncionamento?.length
+      ? `<ul class="hours-list">${data.horarioFuncionamento.map((line) => `<li>${line}</li>`).join("")}</ul>`
+      : `<p class="error-text" style="color:#8fb3d1;">Horário não informado</p>`;
+
+    const transporteLabel = (valor, label) =>
+      valor === null ? `${label}: indisponível` : `${label}: ${valor}`;
+
+    const photosHtml = data.fotos?.length
+      ? `<div class="photos-row">${data.fotos.map((f) => `<img src="${API_BASE_URL}${f.url}" loading="lazy" alt="Foto do estabelecimento" />`).join("")}</div>`
+      : "";
+
+    container.innerHTML = `
+      <p class="source-title">Google Maps</p>
+      <div class="rating-row">
+        <span class="rating-score">${rating} ★</span>
+        <span class="rating-count">${totalAvaliacoes}</span>
+        ${openBadge}
+      </div>
+      ${hoursHtml}
+      <div class="transport-row">
+        <span>🚌 ${transporteLabel(data.transporte.pontosOnibus, "Ônibus")}</span>
+        <span>🚆 ${transporteLabel(data.transporte.estacoesTrem, "Trem")}</span>
+        <span>🚇 ${transporteLabel(data.transporte.estacoesMetro, "Metrô")}</span>
+      </div>
+      ${photosHtml}
+    `;
+  }
 
   async function fetchMinhaReceita(cnpj) {
     const response = await fetch(`${API_BASE_URL}/api/minha-receita/${cnpj}`);
@@ -597,6 +741,11 @@
 
     resultsEl.appendChild(block);
     resultsEl.classList.add("visible");
+
+    return {
+      nomeParaBusca: fields[1][1] !== "Não localizado" ? fields[1][1] : fields[0][1], // prefere nome fantasia, cai pro razão social
+      enderecoParaBusca: fields[4][1] !== "Não localizado" ? fields[4][1] : ""
+    };
   }
 
   // organiza os campos que vêm da API MinhaReceita em um formato comum
