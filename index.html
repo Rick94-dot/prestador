@@ -181,6 +181,16 @@
     ["joanesburgo", "singapura"]
   ];
 
+  const cityKeys = Object.keys(cities);
+  function pickRandomPair(avoidA, avoidB) {
+    let a, b;
+    do {
+      a = cityKeys[Math.floor(Math.random() * cityKeys.length)];
+      b = cityKeys[Math.floor(Math.random() * cityKeys.length)];
+    } while (a === b || (a === avoidA && b === avoidB) || (a === avoidB && b === avoidA));
+    return [a, b];
+  }
+
   // ============ MARCADORES DAS CIDADES ============
   const markerGroup = new THREE.Group();
   worldGroup.add(markerGroup);
@@ -221,9 +231,10 @@
 
   const SEGMENTS = 96;
 
-  function createArc(startCoords, endCoords, index) {
-    const start = latLonToVector3(startCoords[0], startCoords[1], EARTH_RADIUS * 1.005);
-    const end = latLonToVector3(endCoords[0], endCoords[1], EARTH_RADIUS * 1.005);
+  // recalcula a curva/pontos de uma rota (usado tanto na criação quanto ao reconectar)
+  function computeArcPoints(startKey, endKey) {
+    const start = latLonToVector3(cities[startKey][0], cities[startKey][1], EARTH_RADIUS * 1.005);
+    const end = latLonToVector3(cities[endKey][0], cities[endKey][1], EARTH_RADIUS * 1.005);
 
     const distance = start.distanceTo(end);
     const mid = start.clone().add(end).multiplyScalar(0.5);
@@ -231,8 +242,12 @@
 
     const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
     const points = curve.getPoints(SEGMENTS);
+    return { curve, points };
+  }
 
-    // linha base (fica sutil e permanente depois de conectada)
+  function createArc(startKey, endKey, index) {
+    const { curve, points } = computeArcPoints(startKey, endKey);
+
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     geometry.setDrawRange(0, 0); // começa "desconectada"
     const material = new THREE.LineBasicMaterial({
@@ -243,7 +258,6 @@
     const line = new THREE.Line(geometry, material);
     arcGroup.add(line);
 
-    // ponto brilhante na "ponta" da linha enquanto ela se conecta
     const tipGeo = new THREE.SphereGeometry(0.012, 8, 8);
     const tipMat = new THREE.MeshBasicMaterial({
       color: 0xcfe9ff,
@@ -253,8 +267,6 @@
     const tip = new THREE.Mesh(tipGeo, tipMat);
     arcGroup.add(tip);
 
-    // cauda tipo cometa (fluxo contínuo após conectar)
-    const tailCount = 5;
     const tailOffsets = [0, -0.02, -0.04, -0.06, -0.08];
     const tailOpacities = [1, 0.55, 0.32, 0.16, 0.06];
     const tailSizes = [0.011, 0.009, 0.007, 0.005, 0.004];
@@ -271,22 +283,58 @@
     });
 
     arcsData.push({
+      startKey,
+      endKey,
       curve,
       points,
       geometry,
       tip,
       tail,
       totalPoints: points.length,
-      // animação de conexão: cada rota começa em um momento levemente diferente
-      connectDelay: index * 0.35,
-      connectDuration: 1.6,
-      connected: false,
-      flowT: Math.random(),
-      flowSpeed: 0.05 + Math.random() * 0.05
+
+      // ciclo: waiting -> connecting -> flowing -> disconnecting -> waiting ...
+      state: "waiting",
+      timer: 0,
+      waitDuration: index * 0.35 + Math.random() * 1.2, // atraso inicial escalonado
+      connectDuration: 1.4 + Math.random() * 0.5,
+      flowDuration: 4 + Math.random() * 3,
+      disconnectDuration: 1.0 + Math.random() * 0.4,
+
+      flowT: -0.15,
+      flowSpeed: 0.06 + Math.random() * 0.05
     });
   }
 
-  connections.forEach(([a, b], i) => createArc(cities[a], cities[b], i));
+  // regenera a rota com um novo par de cidades (dá variedade ao "renascer")
+  function regenerateArc(arc) {
+    if (Math.random() < 0.6) {
+      const [a, b] = pickRandomPair(arc.startKey, arc.endKey);
+      arc.startKey = a;
+      arc.endKey = b;
+    }
+    const { curve, points } = computeArcPoints(arc.startKey, arc.endKey);
+    arc.curve = curve;
+    arc.points = points;
+
+    const posAttr = arc.geometry.attributes.position;
+    for (let i = 0; i < points.length; i++) {
+      posAttr.setXYZ(i, points[i].x, points[i].y, points[i].z);
+    }
+    posAttr.needsUpdate = true;
+    arc.geometry.setDrawRange(0, 0);
+
+    arc.connectDuration = 1.4 + Math.random() * 0.5;
+    arc.flowDuration = 4 + Math.random() * 3;
+    arc.disconnectDuration = 1.0 + Math.random() * 0.4;
+    arc.flowSpeed = 0.06 + Math.random() * 0.05;
+    arc.flowT = -0.15;
+  }
+
+  function hideTail(arc) {
+    arc.tail.forEach((seg) => { seg.mesh.material.opacity = 0; });
+  }
+
+  connections.forEach(([a, b], i) => createArc(a, b, i));
 
   // ============ RESPONSIVIDADE ============
   window.addEventListener("resize", () => {
@@ -314,39 +362,87 @@
     });
 
     arcsData.forEach((arc) => {
-      if (!arc.connected) {
-        // ---- FASE 1: animação de "estabelecendo conexão" ----
-        const localT = elapsed - arc.connectDelay;
-        if (localT < 0) return; // ainda não começou
+      arc.timer += delta;
 
-        const progress = Math.min(localT / arc.connectDuration, 1);
-        const count = Math.floor(progress * arc.totalPoints);
-        arc.geometry.setDrawRange(0, count);
+      switch (arc.state) {
 
-        // ponta brilhante acompanhando o desenho da linha
-        const idx = Math.min(count, arc.totalPoints - 1);
-        arc.tip.position.copy(arc.points[idx]);
-        arc.tip.material.opacity = progress < 1 ? 0.9 : 0;
+        case "waiting": {
+          // rota invisível, aguardando para (re)conectar
+          arc.geometry.setDrawRange(0, 0);
+          arc.tip.material.opacity = 0;
+          hideTail(arc);
 
-        if (progress >= 1) {
-          arc.connected = true;
-        }
-      } else {
-        // ---- FASE 2: fluxo contínuo tipo cometa ----
-        arc.flowT += delta * arc.flowSpeed;
-        if (arc.flowT > 1.15) arc.flowT = -0.15; // some antes de reaparecer no início
-
-        arc.tail.forEach((seg) => {
-          const t = arc.flowT + seg.offset;
-          if (t < 0 || t > 1) {
-            seg.mesh.material.opacity = 0;
-            return;
+          if (arc.timer >= arc.waitDuration) {
+            arc.state = "connecting";
+            arc.timer = 0;
           }
-          seg.mesh.position.copy(arc.curve.getPoint(t));
-          // fade suave nas bordas do trajeto
-          const edgeFade = Math.min(1, Math.min(t, 1 - t) * 12);
-          seg.mesh.material.opacity = seg.baseOpacity * edgeFade;
-        });
+          break;
+        }
+
+        case "connecting": {
+          // linha se desenhando do início ao fim, com ponta brilhante
+          const progress = Math.min(arc.timer / arc.connectDuration, 1);
+          const count = Math.floor(progress * arc.totalPoints);
+          arc.geometry.setDrawRange(0, count);
+
+          const idx = Math.min(count, arc.totalPoints - 1);
+          arc.tip.position.copy(arc.points[idx]);
+          arc.tip.material.opacity = 0.9;
+
+          if (progress >= 1) {
+            arc.state = "flowing";
+            arc.timer = 0;
+            arc.tip.material.opacity = 0;
+            arc.flowT = -0.15;
+          }
+          break;
+        }
+
+        case "flowing": {
+          // linha conectada, pulso tipo cometa fluindo continuamente
+          arc.flowT += delta * arc.flowSpeed;
+          if (arc.flowT > 1.15) arc.flowT = -0.15;
+
+          arc.tail.forEach((seg) => {
+            const t = arc.flowT + seg.offset;
+            if (t < 0 || t > 1) {
+              seg.mesh.material.opacity = 0;
+              return;
+            }
+            seg.mesh.position.copy(arc.curve.getPoint(t));
+            const edgeFade = Math.min(1, Math.min(t, 1 - t) * 12);
+            seg.mesh.material.opacity = seg.baseOpacity * edgeFade;
+          });
+
+          if (arc.timer >= arc.flowDuration) {
+            arc.state = "disconnecting";
+            arc.timer = 0;
+            hideTail(arc);
+          }
+          break;
+        }
+
+        case "disconnecting": {
+          // linha "recolhendo" a partir da origem, depois some
+          const progress = Math.min(arc.timer / arc.disconnectDuration, 1);
+          const startIdx = Math.floor(progress * arc.totalPoints);
+          const count = Math.max(arc.totalPoints - startIdx, 0);
+          arc.geometry.setDrawRange(startIdx, count);
+
+          const idx = Math.min(startIdx, arc.totalPoints - 1);
+          arc.tip.position.copy(arc.points[idx]);
+          arc.tip.material.opacity = 0.9 * (1 - progress * 0.5);
+
+          if (progress >= 1) {
+            arc.geometry.setDrawRange(0, 0);
+            arc.tip.material.opacity = 0;
+            regenerateArc(arc); // às vezes troca de par de cidades
+            arc.state = "waiting";
+            arc.timer = 0;
+            arc.waitDuration = 0.4 + Math.random() * 1.6;
+          }
+          break;
+        }
       }
     });
 
