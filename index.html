@@ -2,14 +2,14 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>Globo Terrestre High-Tech</title>
+<title>Globo Terrestre Conectado</title>
 <style>
   html, body {
     margin: 0;
     padding: 0;
     width: 100%;
     height: 100%;
-    background: radial-gradient(ellipse at center, #050914 0%, #000000 100%);
+    background: #000005;
     overflow: hidden;
   }
   canvas {
@@ -38,52 +38,61 @@
 
   const EARTH_RADIUS = 1;
 
-  // ============ LUZES ============
-  const light = new THREE.DirectionalLight(0xffffff, 1.1);
-  light.position.set(5, 3, 5);
-  scene.add(light);
-  scene.add(new THREE.AmbientLight(0x404060, 1.8));
+  // ============ LUZES (sol de um lado, como na realidade) ============
+  const sunLight = new THREE.DirectionalLight(0xffffff, 1.4);
+  sunLight.position.set(5, 2, 4);
+  scene.add(sunLight);
+  scene.add(new THREE.AmbientLight(0x223344, 0.9));
 
-  // ============ GRUPO GLOBAL (gira tudo junto) ============
+  // ============ GRUPO DO MUNDO ============
   const worldGroup = new THREE.Group();
+  worldGroup.rotation.z = THREE.MathUtils.degToRad(-8); // leve inclinação do eixo
   scene.add(worldGroup);
 
-  // ============ TEXTURA DA TERRA ============
+  // ============ TEXTURAS REALISTAS ============
   const loader = new THREE.TextureLoader();
-  const earthTexture = loader.load(
-    "https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg"
-  );
+  const base = "https://threejs.org/examples/textures/planets/";
+  const earthMap    = loader.load(base + "earth_atmos_2048.jpg");
+  const earthNormal = loader.load(base + "earth_normal_2048.jpg");
+  const earthSpec   = loader.load(base + "earth_specular_2048.jpg");
+  const cloudsMap   = loader.load(base + "earth_clouds_1024.png");
+  const lightsMap   = loader.load(base + "earth_lights_2048.png");
 
-  const earthGeometry = new THREE.SphereGeometry(EARTH_RADIUS, 64, 64);
+  // ============ TERRA (sem tinte artificial, cores naturais) ============
+  const earthGeometry = new THREE.SphereGeometry(EARTH_RADIUS, 96, 96);
   const earthMaterial = new THREE.MeshPhongMaterial({
-    map: earthTexture,
-    color: 0x8fd8ff,      // tinge azulado high-tech
-    specular: 0x1a3550,
-    shininess: 8,
-    emissive: 0x001122,
-    emissiveIntensity: 0.4
+    map: earthMap,
+    normalMap: earthNormal,
+    normalScale: new THREE.Vector2(0.8, 0.8),
+    specularMap: earthSpec,       // oceanos refletem, continentes não
+    specular: new THREE.Color(0x333333),
+    shininess: 15,
+    emissiveMap: lightsMap,       // luzes das cidades no lado noturno
+    emissive: new THREE.Color(0xffcc88),
+    emissiveIntensity: 0.55
   });
   const earth = new THREE.Mesh(earthGeometry, earthMaterial);
   worldGroup.add(earth);
 
-  // ============ WIREFRAME SOBREPOSTO (efeito holográfico) ============
-  const wireGeometry = new THREE.SphereGeometry(EARTH_RADIUS * 1.003, 48, 48);
-  const wireMaterial = new THREE.MeshBasicMaterial({
-    color: 0x00e5ff,
-    wireframe: true,
+  // ============ NUVENS (camada separada, gira um pouco mais rápido) ============
+  const cloudsGeometry = new THREE.SphereGeometry(EARTH_RADIUS * 1.008, 96, 96);
+  const cloudsMaterial = new THREE.MeshPhongMaterial({
+    map: cloudsMap,
     transparent: true,
-    opacity: 0.08
+    opacity: 0.55,
+    depthWrite: false
   });
-  const wireSphere = new THREE.Mesh(wireGeometry, wireMaterial);
-  worldGroup.add(wireSphere);
+  const clouds = new THREE.Mesh(cloudsGeometry, cloudsMaterial);
+  worldGroup.add(clouds);
 
-  // ============ ATMOSFERA (glow externo) ============
-  const atmosphereGeometry = new THREE.SphereGeometry(EARTH_RADIUS * 1.15, 64, 64);
+  // ============ ATMOSFERA SUTIL (azul fino no limbo, como fotos da ISS) ============
+  const atmosphereGeometry = new THREE.SphereGeometry(EARTH_RADIUS * 1.04, 96, 96);
   const atmosphereMaterial = new THREE.ShaderMaterial({
     transparent: true,
     side: THREE.BackSide,
+    blending: THREE.AdditiveBlending,
     uniforms: {
-      glowColor: { value: new THREE.Color(0x00e5ff) }
+      glowColor: { value: new THREE.Color(0x3a7bd5) }
     },
     vertexShader: `
       varying vec3 vNormal;
@@ -96,29 +105,44 @@
       varying vec3 vNormal;
       uniform vec3 glowColor;
       void main() {
-        float intensity = pow(0.65 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.0);
-        gl_FragColor = vec4(glowColor, intensity * 1.2);
+        float intensity = pow(0.7 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 4.0);
+        gl_FragColor = vec4(glowColor, intensity * 0.9);
       }
     `
   });
   const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
-  scene.add(atmosphere); // fora do worldGroup, fica fixa (efeito de aura)
+  scene.add(atmosphere);
 
-  // ============ ESTRELAS ============
+  // ============ ESTRELAS (tamanhos e brilhos variados) ============
   function createStars() {
-    const starGeometry = new THREE.BufferGeometry();
-    const starCount = 2500;
-    const positions = new Float32Array(starCount * 3);
-    for (let i = 0; i < starCount * 3; i++) {
-      positions[i] = (Math.random() - 0.5) * 100;
+    const group = new THREE.Group();
+    for (let layer = 0; layer < 3; layer++) {
+      const geo = new THREE.BufferGeometry();
+      const count = 800;
+      const positions = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        // distribui em esfera distante, evitando aglomerar no centro
+        const r = 40 + Math.random() * 40;
+        const t = Math.random() * Math.PI * 2;
+        const p = Math.acos(2 * Math.random() - 1);
+        positions[i * 3]     = r * Math.sin(p) * Math.cos(t);
+        positions[i * 3 + 1] = r * Math.cos(p);
+        positions[i * 3 + 2] = r * Math.sin(p) * Math.sin(t);
+      }
+      geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      const mat = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 0.05 + layer * 0.05,
+        transparent: true,
+        opacity: 0.4 + layer * 0.25
+      });
+      group.add(new THREE.Points(geo, mat));
     }
-    starGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.09 });
-    return new THREE.Points(starGeometry, starMaterial);
+    return group;
   }
   scene.add(createStars());
 
-  // ============ CONVERSÃO LAT/LON -> VETOR 3D ============
+  // ============ LAT/LON -> 3D ============
   function latLonToVector3(lat, lon, radius) {
     const phi = (90 - lat) * (Math.PI / 180);
     const theta = (lon + 180) * (Math.PI / 180);
@@ -129,115 +153,119 @@
     );
   }
 
-  // ============ CIDADES (pontos de conexão) ============
+  // ============ HUBS DE CONEXÃO (grandes centros reais) ============
   const cities = {
     novaYork:   [40.7, -74.0],
     londres:    [51.5, -0.12],
     toquio:     [35.6, 139.7],
     saoPaulo:   [-23.5, -46.6],
     sydney:     [-33.8, 151.2],
-    moscou:     [55.7, 37.6],
-    cairo:      [30.0, 31.2],
+    frankfurt:  [50.1, 8.68],
+    singapura:  [1.35, 103.8],
     mumbai:     [19.0, 72.8],
     losAngeles: [34.0, -118.2],
-    pequim:     [39.9, 116.4],
-    berlim:     [52.5, 13.4],
     joanesburgo:[-26.2, 28.0]
   };
 
+  // rotas parecidas com cabos submarinos / tráfego real
   const connections = [
     ["novaYork", "londres"],
-    ["londres", "moscou"],
-    ["moscou", "pequim"],
-    ["pequim", "toquio"],
-    ["toquio", "sydney"],
+    ["londres", "frankfurt"],
+    ["frankfurt", "mumbai"],
+    ["mumbai", "singapura"],
+    ["singapura", "toquio"],
+    ["singapura", "sydney"],
+    ["toquio", "losAngeles"],
+    ["losAngeles", "novaYork"],
     ["saoPaulo", "novaYork"],
-    ["saoPaulo", "joanesburgo"],
-    ["cairo", "mumbai"],
-    ["mumbai", "pequim"],
-    ["losAngeles", "toquio"],
-    ["berlim", "cairo"],
-    ["londres", "saoPaulo"]
+    ["saoPaulo", "londres"],
+    ["joanesburgo", "londres"],
+    ["joanesburgo", "singapura"]
   ];
 
-  // ============ MARCADORES (pontos pulsantes nas cidades) ============
+  // ============ MARCADORES DISCRETOS ============
   const markerGroup = new THREE.Group();
   worldGroup.add(markerGroup);
   const markers = [];
 
   Object.values(cities).forEach((coords) => {
-    const pos = latLonToVector3(coords[0], coords[1], EARTH_RADIUS * 1.01);
-    const markerGeo = new THREE.SphereGeometry(0.012, 8, 8);
-    const markerMat = new THREE.MeshBasicMaterial({ color: 0x00ffe0 });
+    const pos = latLonToVector3(coords[0], coords[1], EARTH_RADIUS * 1.005);
+
+    const markerGeo = new THREE.SphereGeometry(0.008, 8, 8);
+    const markerMat = new THREE.MeshBasicMaterial({ color: 0xffd27f });
     const marker = new THREE.Mesh(markerGeo, markerMat);
     marker.position.copy(pos);
     markerGroup.add(marker);
 
-    // anel pulsante
-    const ringGeo = new THREE.RingGeometry(0.014, 0.02, 16);
+    const ringGeo = new THREE.RingGeometry(0.01, 0.016, 24);
     const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffe0,
+      color: 0xffd27f,
       transparent: true,
-      opacity: 0.6,
-      side: THREE.DoubleSide
+      opacity: 0.4,
+      side: THREE.DoubleSide,
+      depthWrite: false
     });
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.position.copy(pos);
     ring.lookAt(pos.clone().multiplyScalar(2));
     markerGroup.add(ring);
 
-    markers.push({ mesh: marker, ring: ring, phase: Math.random() * Math.PI * 2 });
+    markers.push({ ring, phase: Math.random() * Math.PI * 2, pos });
   });
 
-  // ============ ARCOS DE CONEXÃO ENTRE PAÍSES ============
+  // ============ ARCOS SUTIS (rotas de dados) ============
   const arcGroup = new THREE.Group();
   worldGroup.add(arcGroup);
   const arcsData = [];
 
   function createArc(startCoords, endCoords) {
-    const start = latLonToVector3(startCoords[0], startCoords[1], EARTH_RADIUS * 1.01);
-    const end = latLonToVector3(endCoords[0], endCoords[1], EARTH_RADIUS * 1.01);
+    const start = latLonToVector3(startCoords[0], startCoords[1], EARTH_RADIUS * 1.005);
+    const end = latLonToVector3(endCoords[0], endCoords[1], EARTH_RADIUS * 1.005);
 
     const distance = start.distanceTo(end);
     const mid = start.clone().add(end).multiplyScalar(0.5);
-    mid.normalize().multiplyScalar(EARTH_RADIUS * (1.15 + distance * 0.35));
+    // arcos mais baixos = mais realista (como rotas de voo)
+    mid.normalize().multiplyScalar(EARTH_RADIUS * (1.05 + distance * 0.18));
 
     const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-    const points = curve.getPoints(80);
+    const points = curve.getPoints(64);
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
 
     const material = new THREE.LineBasicMaterial({
-      color: 0x00b4ff,
+      color: 0x7fc4ff,
       transparent: true,
-      opacity: 0.35
+      opacity: 0.18
     });
-    const line = new THREE.Line(geometry, material);
-    arcGroup.add(line);
+    arcGroup.add(new THREE.Line(geometry, material));
 
-    // pulso viajando ao longo do arco
-    const pulseGeo = new THREE.SphereGeometry(0.014, 8, 8);
-    const pulseMat = new THREE.MeshBasicMaterial({ color: 0x66fff2 });
+    // pequeno pulso de luz percorrendo a rota
+    const pulseGeo = new THREE.SphereGeometry(0.007, 6, 6);
+    const pulseMat = new THREE.MeshBasicMaterial({
+      color: 0xcfe9ff,
+      transparent: true,
+      opacity: 0.9
+    });
     const pulse = new THREE.Mesh(pulseGeo, pulseMat);
     arcGroup.add(pulse);
 
-    arcsData.push({ curve, pulse, t: Math.random(), speed: 0.15 + Math.random() * 0.15 });
+    arcsData.push({ curve, pulse, t: Math.random(), speed: 0.08 + Math.random() * 0.08 });
   }
 
   connections.forEach(([a, b]) => createArc(cities[a], cities[b]));
 
-  // ============ ÍCONES TECNOLÓGICOS FLUTUANTES ============
-  function makeIconSprite(symbol, color) {
+  // ============ ÍCONES: SOBEM DAS CIDADES E DESAPARECEM ============
+  // Em vez de orbitar aleatoriamente, cada ícone "nasce" em um hub,
+  // sobe devagar como um sinal sendo emitido, e some. Depois renasce em outro hub.
+  function makeIconSprite(symbol) {
     const size = 128;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
-
-    // brilho externo
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 20;
-    ctx.fillStyle = color;
-    ctx.font = "bold 72px 'Segoe UI Symbol', sans-serif";
+    ctx.shadowColor = "rgba(180, 220, 255, 0.9)";
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = "rgba(220, 240, 255, 0.95)";
+    ctx.font = "600 64px 'Segoe UI Symbol', sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(symbol, size / 2, size / 2);
@@ -246,38 +274,34 @@
     const material = new THREE.SpriteMaterial({
       map: texture,
       transparent: true,
+      opacity: 0,
       depthWrite: false
     });
     const sprite = new THREE.Sprite(material);
-    sprite.scale.set(0.16, 0.16, 1);
+    sprite.scale.set(0.11, 0.11, 1);
     return sprite;
   }
 
-  const iconSymbols = ["⚙", "📡", "🔗", "💾", "🛰", "🔒", "⚡", "🌐"];
-  const iconColor = "#00e5ff";
-  const techIconsGroup = new THREE.Group();
-  scene.add(techIconsGroup);
-  const floatingIcons = [];
+  const iconSymbols = ["📡", "🛰", "🔒", "⚡", "🌐", "💾"];
+  const emitters = [];
+  const cityList = Object.values(cities);
 
-  const ICON_COUNT = 10;
-  for (let i = 0; i < ICON_COUNT; i++) {
-    const symbol = iconSymbols[i % iconSymbols.length];
-    const sprite = makeIconSprite(symbol, iconColor);
+  function resetEmitter(e, first = false) {
+    const coords = cityList[Math.floor(Math.random() * cityList.length)];
+    e.origin = latLonToVector3(coords[0], coords[1], EARTH_RADIUS * 1.01);
+    e.dir = e.origin.clone().normalize(); // sobe na direção "para fora" da Terra
+    e.progress = first ? Math.random() : 0; // desincroniza no início
+    e.speed = 0.06 + Math.random() * 0.05;
+    e.maxHeight = 0.35 + Math.random() * 0.2;
+  }
 
-    const radius = EARTH_RADIUS * (1.6 + Math.random() * 0.5);
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-
-    sprite.userData = {
-      radius,
-      theta,
-      phi,
-      speed: 0.05 + Math.random() * 0.08,
-      bobPhase: Math.random() * Math.PI * 2
-    };
-
-    techIconsGroup.add(sprite);
-    floatingIcons.push(sprite);
+  const EMITTER_COUNT = 7;
+  for (let i = 0; i < EMITTER_COUNT; i++) {
+    const sprite = makeIconSprite(iconSymbols[i % iconSymbols.length]);
+    worldGroup.add(sprite); // dentro do worldGroup: acompanha a rotação, nasce da cidade certa
+    const e = { sprite };
+    resetEmitter(e, true);
+    emitters.push(e);
   }
 
   // ============ RESPONSIVIDADE ============
@@ -287,7 +311,7 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  // ============ LOOP DE ANIMAÇÃO ============
+  // ============ ANIMAÇÃO ============
   const clock = new THREE.Clock();
 
   function animate() {
@@ -295,36 +319,41 @@
     const elapsed = clock.getElapsedTime();
     const delta = clock.getDelta();
 
-    // rotação lenta do globo (e de tudo que está grudado nele)
-    worldGroup.rotation.y += 0.0015;
+    // rotação lenta da Terra; nuvens giram um pouco mais rápido
+    worldGroup.rotation.y += 0.0012;
+    clouds.rotation.y += 0.0004;
 
-    // pulso dos marcadores das cidades
+    // anéis das cidades pulsam devagar
     markers.forEach((m) => {
-      const scale = 1 + 0.4 * Math.sin(elapsed * 2 + m.phase);
-      m.ring.scale.set(scale, scale, scale);
-      m.ring.material.opacity = 0.5 - 0.3 * Math.sin(elapsed * 2 + m.phase);
+      const s = 1 + 0.25 * Math.sin(elapsed * 1.4 + m.phase);
+      m.ring.scale.set(s, s, s);
+      m.ring.material.opacity = 0.35 - 0.2 * Math.sin(elapsed * 1.4 + m.phase);
     });
 
-    // pulso viajando pelos arcos
+    // pulsos percorrendo as rotas
     arcsData.forEach((arc) => {
       arc.t += delta * arc.speed;
       if (arc.t > 1) arc.t = 0;
-      const point = arc.curve.getPoint(arc.t);
-      arc.pulse.position.copy(point);
+      arc.pulse.position.copy(arc.curve.getPoint(arc.t));
+      // fade nas pontas para não "piscar"
+      const edge = Math.min(arc.t, 1 - arc.t);
+      arc.pulse.material.opacity = Math.min(1, edge * 8) * 0.9;
     });
 
-    // ícones tecnológicos orbitando o globo, independentes da rotação
-    floatingIcons.forEach((sprite) => {
-      const data = sprite.userData;
-      data.theta += data.speed * delta * 0.3;
-      const bob = Math.sin(elapsed * 1.5 + data.bobPhase) * 0.05;
-      const r = data.radius + bob;
+    // ícones sobem das cidades, fade in/out, renascem em outro hub
+    emitters.forEach((e) => {
+      e.progress += delta * e.speed;
+      if (e.progress >= 1) resetEmitter(e);
 
-      sprite.position.set(
-        r * Math.sin(data.phi) * Math.cos(data.theta),
-        r * Math.cos(data.phi),
-        r * Math.sin(data.phi) * Math.sin(data.theta)
-      );
+      const height = e.progress * e.maxHeight;
+      e.sprite.position.copy(e.origin).addScaledVector(e.dir, height);
+
+      // opacidade: aparece suave, some suave
+      let opacity;
+      if (e.progress < 0.2)      opacity = e.progress / 0.2;
+      else if (e.progress > 0.7) opacity = (1 - e.progress) / 0.3;
+      else                       opacity = 1;
+      e.sprite.material.opacity = opacity * 0.85;
     });
 
     renderer.render(scene, camera);
