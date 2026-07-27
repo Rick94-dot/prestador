@@ -322,13 +322,14 @@
   }
 
   .hours-list .day-name {
-    color: #9fc3dd;
+    color: #b9d7ef;
     text-transform: capitalize;
     white-space: nowrap;
   }
 
   .hours-list .day-hours {
-    color: #eaf6ff;
+    color: #ffffff;
+    font-weight: 500;
     text-align: right;
   }
 
@@ -722,12 +723,12 @@
     if (data.abertoAgora === true) openBadge = `<span class="open-badge open">Aberto agora</span>`;
     else if (data.abertoAgora === false) openBadge = `<span class="open-badge closed">Fechado agora</span>`;
 
-    const hoursHtml = data.horarioFuncionamento?.length
-      ? `<ul class="hours-list">${data.horarioFuncionamento.map((line) => `<li>${line}</li>`).join("")}</ul>`
-      : `<p class="error-text" style="color:#8fb3d1;">Horário não informado</p>`;
+    const hoursHtml = buildHoursList(data.horarioFuncionamento);
 
-    const transporteLabel = (valor, label) =>
-      valor === null ? `${label}: indisponível` : `${label}: ${valor}`;
+    const transporteBadge = (icon, valor, label) => {
+      const count = valor === null ? "—" : valor;
+      return `<span class="transport-badge">${icon} ${label}: <span class="count">${count}</span></span>`;
+    };
 
     const photosHtml = data.fotos?.length
       ? `<div class="photos-row">${data.fotos.map((f) => `<img src="${API_BASE_URL}${f.url}" loading="lazy" alt="Foto do estabelecimento" />`).join("")}</div>`
@@ -741,12 +742,44 @@
         ${openBadge}
       </div>
       ${hoursHtml}
+      <p class="transport-title">Transporte próximo</p>
       <div class="transport-row">
-        <span>🚌 ${transporteLabel(data.transporte.pontosOnibus, "Ônibus")}</span>
-        <span>🚆 ${transporteLabel(data.transporte.estacoesTrem, "Trem")}</span>
-        <span>🚇 ${transporteLabel(data.transporte.estacoesMetro, "Metrô")}</span>
+        ${transporteBadge("🚌", data.transporte.pontosOnibus, "Ônibus")}
+        ${transporteBadge("🚆", data.transporte.estacoesTrem, "Trem")}
+        ${transporteBadge("🚇", data.transporte.estacoesMetro, "Metrô")}
       </div>
       ${photosHtml}
+    `;
+  }
+
+  // monta a lista de horários em linhas alinhadas (dia à esquerda, horário à direita),
+  // destacando o dia de hoje
+  function buildHoursList(weekdayDescriptions) {
+    if (!weekdayDescriptions?.length) {
+      return `<p class="error-text" style="color:#8fb3d1;">Horário não informado</p>`;
+    }
+
+    // weekdayDescriptions vem na ordem segunda(0) ... domingo(6); getDay() retorna domingo(0) ... sábado(6)
+    const todayIndex = (new Date().getDay() + 6) % 7;
+
+    const rows = weekdayDescriptions.map((line, i) => {
+      const match = line.match(/^([^:]+):\s*(.*)$/);
+      const dayName = match ? match[1] : line;
+      const hours = match ? match[2] : "";
+      const isClosed = /fechado/i.test(hours) || hours === "";
+      const isToday = i === todayIndex;
+
+      return `
+        <li class="${isToday ? "today" : ""}">
+          <span class="day-name">${dayName}</span>
+          <span class="day-hours ${isClosed ? "closed-text" : ""}">${hours || "Fechado"}</span>
+        </li>
+      `;
+    }).join("");
+
+    return `
+      <p class="hours-title">Horário de funcionamento</p>
+      <ul class="hours-list">${rows}</ul>
     `;
   }
 
