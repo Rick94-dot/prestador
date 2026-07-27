@@ -861,7 +861,7 @@
 
     return {
       nomeParaBusca: fields[1][1] !== "Não localizado" ? fields[1][1] : fields[0][1], // prefere nome fantasia, cai pro razão social
-      enderecoParaBusca: fields[4][1] !== "Não localizado" ? fields[4][1] : ""
+      enderecoParaBusca: fields[4][1] !== "Não localizado" ? fields[4][1].replace(/·/g, ",") : ""
     };
   }
 
