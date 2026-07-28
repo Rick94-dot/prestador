@@ -406,6 +406,17 @@
     color: #7a94a8;
   }
 
+  .accessibility-badge.loading {
+    color: #7fc4ff;
+    border-color: rgba(127, 196, 255, 0.4);
+    animation: pulse-badge 1.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse-badge {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+  }
+
   .photos-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -918,23 +929,21 @@
   }
 
   // ============ CHECAGEM NAS OPERADORAS (ODIN) ============
+  // Busca uma operadora de cada vez (não em paralelo) — o backend do ODIN aplica
+  // rate limit quando recebe várias chamadas simultâneas. Como essa etapa não
+  // precisa ser rápida, o front-end mostra visualmente qual operadora está sendo
+  // consultada no momento, atualizando a tela conforme cada uma responde.
+  const ORDEM_OPERADORAS = ["odontoprev", "hapvida", "metlife", "unimed"];
   const OPERADORAS_LABELS = {
+    odontoprev: "Odontoprev",
     hapvida: "Hapvida",
     metlife: "Metlife",
-    unimed: "Unimed",
-    odontoprev: "Odontoprev"
+    unimed: "Unimed"
   };
 
   async function buscarOperadoras(merged, cnpjDigits, localizacao) {
     const bloco = document.createElement("div");
     bloco.className = "google-block";
-    bloco.innerHTML = `
-      <p class="source-title">Prestador nas operadoras</p>
-      <p class="error-text" style="color:#8fb3d1;">
-        Verificando credenciamento na Hapvida, Metlife, Unimed e Odontoprev...
-        Isso pode levar até 2 minutos, algumas operadoras são mais lentas que outras.
-      </p>
-    `;
     resultsEl.appendChild(bloco);
 
     if (!merged.municipio || merged.municipio === "Não localizado" || !merged.uf || merged.uf === "Não localizado") {
@@ -945,41 +954,71 @@
       return;
     }
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/operadoras`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cidade: `${merged.municipio} - ${merged.uf}`,
-          latitude: localizacao?.lat ?? null,
-          longitude: localizacao?.lng ?? null,
-          cnpj: cnpjDigits,
-          razaoSocial: merged.razaoSocial,
-          nomeFantasia: merged.nomeFantasia
-        })
-      });
+    const cidade = `${merged.municipio} - ${merged.uf}`;
+    const resultadosPorOperadora = {};
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    // estado inicial: todos os badges como "aguardando"
+    ORDEM_OPERADORAS.forEach((op) => {
+      resultadosPorOperadora[op] = { status: "aguardando" };
+    });
 
-      renderOperadorasBlock(bloco, data.operadoras);
-    } catch (err) {
-      console.error("Erro na checagem de operadoras:", err);
-      bloco.innerHTML = `
-        <p class="source-title error">Prestador nas operadoras</p>
-        <p class="error-text">Não foi possível verificar as operadoras agora. Detalhe: ${err.message}</p>
-      `;
+    const render = (operadoraAtual) => renderOperadorasProgresso(bloco, resultadosPorOperadora, operadoraAtual);
+    render(null);
+
+    for (const operadora of ORDEM_OPERADORAS) {
+      resultadosPorOperadora[operadora] = { status: "buscando" };
+      render(operadora);
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/operadoras/${operadora}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cidade,
+            latitude: localizacao?.lat ?? null,
+            longitude: localizacao?.lng ?? null,
+            cnpj: cnpjDigits,
+            razaoSocial: merged.razaoSocial,
+            nomeFantasia: merged.nomeFantasia
+          })
+        });
+
+        const data = await response.json();
+        resultadosPorOperadora[operadora] = { status: "concluido", ...data };
+      } catch (err) {
+        console.error(`Erro ao consultar ${operadora}:`, err);
+        resultadosPorOperadora[operadora] = {
+          status: "concluido",
+          disponivel: false,
+          encontrado: false,
+          registro: null,
+          erro: err.message
+        };
+      }
+
+      render(null);
     }
   }
 
-  function renderOperadorasBlock(container, operadoras) {
-    const entradas = Object.entries(operadoras);
-    const disponiveis = entradas.filter(([, o]) => o.disponivel);
+  function renderOperadorasProgresso(container, resultados, operadoraEmAndamento) {
+    const entradas = Object.entries(resultados);
+    const concluidas = entradas.filter(([, o]) => o.status === "concluido");
+    const disponiveis = concluidas.filter(([, o]) => o.disponivel);
     const encontradas = disponiveis.filter(([, o]) => o.encontrado);
+    const todasConcluidas = concluidas.length === ORDEM_OPERADORAS.length;
 
     let resumoHtml;
 
-    if (encontradas.length) {
+    if (operadoraEmAndamento) {
+      resumoHtml = `
+        <p class="error-text" style="color:#8fb3d1; margin-bottom:14px;">
+          Buscando na <strong>${OPERADORAS_LABELS[operadoraEmAndamento]}</strong>...
+          Isso pode levar até 2 minutos nas operadoras mais lentas.
+        </p>
+      `;
+    } else if (!todasConcluidas) {
+      resumoHtml = `<p class="error-text" style="color:#8fb3d1; margin-bottom:14px;">Preparando próxima busca...</p>`;
+    } else if (encontradas.length) {
       const detalhes = encontradas.map(([key, o]) => {
         const label = OPERADORAS_LABELS[key];
         const esp = o.registro.especialidades?.length
@@ -1007,17 +1046,16 @@
       `;
     }
 
-    const badgesHtml = entradas.map(([key, o]) => {
+    const badgesHtml = ORDEM_OPERADORAS.map((key) => {
+      const o = resultados[key];
       const label = OPERADORAS_LABELS[key];
-      let statusClass, statusText;
+      let statusClass, statusText, tooltip = "";
 
-      if (!o.disponivel) { statusClass = "unknown"; statusText = "Indisponível"; }
+      if (o.status === "aguardando") { statusClass = "unknown"; statusText = "Aguardando"; }
+      else if (o.status === "buscando") { statusClass = "loading"; statusText = "Buscando..."; }
+      else if (!o.disponivel) { statusClass = "unknown"; statusText = "Indisponível"; tooltip = o.erro ? ` title="${o.erro}"` : ""; }
       else if (o.encontrado) { statusClass = "yes"; statusText = "Credenciado"; }
-      else { statusClass = "no"; statusText = "Não encontrado"; }
-
-      const tooltip = o.erro
-        ? ` title="${o.erro}"`
-        : (o.totalNaRegiao != null ? ` title="${o.totalNaRegiao} prestador(es) encontrados na região"` : "");
+      else { statusClass = "no"; statusText = "Não encontrado"; tooltip = o.totalNaRegiao != null ? ` title="${o.totalNaRegiao} prestador(es) na região"` : ""; }
 
       return `<span class="accessibility-badge ${statusClass}"${tooltip}>${label}: <strong>${statusText}</strong></span>`;
     }).join("");
