@@ -934,6 +934,7 @@
   // precisa ser rápida, o front-end mostra visualmente qual operadora está sendo
   // consultada no momento, atualizando a tela conforme cada uma responde.
   const ORDEM_OPERADORAS = ["odontoprev", "hapvida", "metlife", "unimed"];
+  const INTERVALO_ENTRE_OPERADORAS_MS = 8000; // espera extra entre uma operadora e outra
   const OPERADORAS_LABELS = {
     odontoprev: "Odontoprev",
     hapvida: "Hapvida",
@@ -965,7 +966,13 @@
     const render = (operadoraAtual) => renderOperadorasProgresso(bloco, resultadosPorOperadora, operadoraAtual);
     render(null);
 
-    for (const operadora of ORDEM_OPERADORAS) {
+    for (let i = 0; i < ORDEM_OPERADORAS.length; i++) {
+      const operadora = ORDEM_OPERADORAS[i];
+
+      if (i > 0) {
+        await new Promise((resolve) => setTimeout(resolve, INTERVALO_ENTRE_OPERADORAS_MS));
+      }
+
       resultadosPorOperadora[operadora] = { status: "buscando" };
       render(operadora);
 
