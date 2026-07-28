@@ -865,11 +865,30 @@
 
     const merged = renderResults(minhaReceita, brasilApi);
 
-    // com o nome e endereço em mãos, busca os dados do Google Maps
-    if (merged.nomeParaBusca && merged.enderecoParaBusca) {
+    // só busca no Google se a atividade principal do CNPJ for da área de odontologia —
+    // evita que o usuário pesquise CNPJs de qualquer outro ramo neste app
+    const ehOdontologico = /odont/i.test(merged.atividadePrincipal || "");
+
+    if (!ehOdontologico) {
+      mostrarBlocoNaoOdontologico();
+    } else if (merged.nomeParaBusca && merged.enderecoParaBusca) {
       await buscarGooglePlaces(merged.nomeParaBusca, merged.enderecoParaBusca);
     }
   });
+
+  function mostrarBlocoNaoOdontologico() {
+    const bloco = document.createElement("div");
+    bloco.className = "google-block";
+    bloco.innerHTML = `
+      <p class="source-title error">CNPJ fora do escopo</p>
+      <p class="error-text">
+        Este CNPJ não pertence a um prestador odontológico. Este sistema é destinado
+        exclusivamente à consulta de prestadores da área de odontologia — informe um
+        novo CNPJ.
+      </p>
+    `;
+    resultsEl.appendChild(bloco);
+  }
 
   async function buscarGooglePlaces(nome, endereco) {
     const googleBlock = document.createElement("div");
@@ -898,9 +917,6 @@
   }
 
   function renderGoogleBlock(container, data) {
-    const rating = data.nota != null ? data.nota.toFixed(1) : "—";
-    const totalAvaliacoes = data.totalAvaliacoes != null ? `${data.totalAvaliacoes} avaliações` : "sem avaliações";
-
     let openBadge = "";
     if (data.abertoAgora === true) openBadge = `<span class="open-badge open">Aberto agora</span>`;
     else if (data.abertoAgora === false) openBadge = `<span class="open-badge closed">Fechado agora</span>`;
@@ -940,11 +956,7 @@
     container.innerHTML = `
       <p class="source-title">Google Maps</p>
       <p class="google-match">Encontrado como: <strong>${data.nome}</strong> — ${data.enderecoFormatado}</p>
-      <div class="rating-row">
-        <span class="rating-score">${rating} ★</span>
-        <span class="rating-count">${totalAvaliacoes}</span>
-        ${openBadge}
-      </div>
+      ${openBadge ? `<div class="rating-row">${openBadge}</div>` : ""}
       ${hoursHtml}
       <p class="transport-title">Transporte próximo</p>
       <div class="transport-row">
@@ -1139,7 +1151,8 @@
 
     return {
       nomeParaBusca: fields[1][1] !== "Não localizado" ? fields[1][1] : fields[0][1], // prefere nome fantasia, cai pro razão social
-      enderecoParaBusca: fields[4][1] !== "Não localizado" ? fields[4][1].replace(/·/g, ",") : ""
+      enderecoParaBusca: fields[4][1] !== "Não localizado" ? fields[4][1].replace(/·/g, ",") : "",
+      atividadePrincipal: fields[3][1]
     };
   }
 
