@@ -872,7 +872,7 @@
     if (!ehOdontologico) {
       mostrarBlocoNaoOdontologico();
     } else if (merged.nomeParaBusca && merged.enderecoParaBusca) {
-      await buscarGooglePlaces(merged.nomeParaBusca, merged.enderecoParaBusca);
+      await buscarGooglePlaces(merged.nomeParaBusca, merged.enderecoParaBusca, merged, cnpjDigits);
     }
   });
 
@@ -890,7 +890,7 @@
     resultsEl.appendChild(bloco);
   }
 
-  async function buscarGooglePlaces(nome, endereco) {
+  async function buscarGooglePlaces(nome, endereco, merged, cnpjDigits) {
     const googleBlock = document.createElement("div");
     googleBlock.className = "google-block";
     googleBlock.innerHTML = `<p class="source-title">Google Maps</p><p class="error-text" style="color:#8fb3d1;">Buscando dados do Google...</p>`;
@@ -906,6 +906,7 @@
       }
 
       renderGoogleBlock(googleBlock, data);
+      await buscarOperadoras(merged, cnpjDigits, data.localizacao);
     } catch (err) {
       console.error("Erro na busca do Google Places:", err);
       googleBlock.innerHTML = `
@@ -914,6 +915,118 @@
         <p class="error-text" style="opacity:0.7; margin-top:4px;">Detalhe: ${err.message}</p>
       `;
     }
+  }
+
+  // ============ CHECAGEM NAS OPERADORAS (ODIN) ============
+  const OPERADORAS_LABELS = {
+    hapvida: "Hapvida",
+    metlife: "Metlife",
+    unimed: "Unimed",
+    odontoprev: "Odontoprev"
+  };
+
+  async function buscarOperadoras(merged, cnpjDigits, localizacao) {
+    const bloco = document.createElement("div");
+    bloco.className = "google-block";
+    bloco.innerHTML = `
+      <p class="source-title">Prestador nas operadoras</p>
+      <p class="error-text" style="color:#8fb3d1;">
+        Verificando credenciamento na Hapvida, Metlife, Unimed e Odontoprev...
+        Isso pode levar até 2 minutos, algumas operadoras são mais lentas que outras.
+      </p>
+    `;
+    resultsEl.appendChild(bloco);
+
+    if (!merged.municipio || merged.municipio === "Não localizado" || !merged.uf || merged.uf === "Não localizado") {
+      bloco.innerHTML = `
+        <p class="source-title">Prestador nas operadoras</p>
+        <p class="error-text">Não foi possível determinar a cidade do estabelecimento para essa checagem.</p>
+      `;
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/operadoras`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cidade: `${merged.municipio} - ${merged.uf}`,
+          latitude: localizacao?.lat ?? null,
+          longitude: localizacao?.lng ?? null,
+          cnpj: cnpjDigits,
+          razaoSocial: merged.razaoSocial,
+          nomeFantasia: merged.nomeFantasia
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+
+      renderOperadorasBlock(bloco, data.operadoras);
+    } catch (err) {
+      console.error("Erro na checagem de operadoras:", err);
+      bloco.innerHTML = `
+        <p class="source-title error">Prestador nas operadoras</p>
+        <p class="error-text">Não foi possível verificar as operadoras agora. Detalhe: ${err.message}</p>
+      `;
+    }
+  }
+
+  function renderOperadorasBlock(container, operadoras) {
+    const entradas = Object.entries(operadoras);
+    const disponiveis = entradas.filter(([, o]) => o.disponivel);
+    const encontradas = disponiveis.filter(([, o]) => o.encontrado);
+
+    let resumoHtml;
+
+    if (encontradas.length) {
+      const detalhes = encontradas.map(([key, o]) => {
+        const label = OPERADORAS_LABELS[key];
+        const esp = o.registro.especialidades?.length
+          ? o.registro.especialidades.join(", ")
+          : "especialidade não informada";
+        return `<li><strong>${label}</strong> — ${esp}</li>`;
+      }).join("");
+
+      resumoHtml = `
+        <p class="ai-summary-text">✅ Localizamos esse prestador credenciado em ${encontradas.length} operadora(s):</p>
+        <ul class="hours-list" style="margin-bottom:14px;">${detalhes}</ul>
+      `;
+    } else if (disponiveis.length) {
+      const nomesConsultadas = disponiveis.map(([key]) => OPERADORAS_LABELS[key]).join(", ");
+      resumoHtml = `
+        <p class="error-text" style="color:#8fb3d1; margin-bottom:14px;">
+          Fizemos a busca nas operadoras ${nomesConsultadas} e não localizamos esse prestador credenciado em nenhuma delas.
+        </p>
+      `;
+    } else {
+      resumoHtml = `
+        <p class="error-text" style="margin-bottom:14px;">
+          Não foi possível consultar nenhuma operadora agora. Tente novamente em instantes.
+        </p>
+      `;
+    }
+
+    const badgesHtml = entradas.map(([key, o]) => {
+      const label = OPERADORAS_LABELS[key];
+      let statusClass, statusText;
+
+      if (!o.disponivel) { statusClass = "unknown"; statusText = "Indisponível"; }
+      else if (o.encontrado) { statusClass = "yes"; statusText = "Credenciado"; }
+      else { statusClass = "no"; statusText = "Não encontrado"; }
+
+      const tooltip = o.erro
+        ? ` title="${o.erro}"`
+        : (o.totalNaRegiao != null ? ` title="${o.totalNaRegiao} prestador(es) encontrados na região"` : "");
+
+      return `<span class="accessibility-badge ${statusClass}"${tooltip}>${label}: <strong>${statusText}</strong></span>`;
+    }).join("");
+
+    container.innerHTML = `
+      <p class="source-title">Prestador nas operadoras</p>
+      ${resumoHtml}
+      <div class="transport-row">${badgesHtml}</div>
+    `;
   }
 
   function renderGoogleBlock(container, data) {
@@ -1152,7 +1265,11 @@
     return {
       nomeParaBusca: fields[1][1] !== "Não localizado" ? fields[1][1] : fields[0][1], // prefere nome fantasia, cai pro razão social
       enderecoParaBusca: fields[4][1] !== "Não localizado" ? fields[4][1].replace(/·/g, ",") : "",
-      atividadePrincipal: fields[3][1]
+      atividadePrincipal: fields[3][1],
+      razaoSocial: fields[0][1],
+      nomeFantasia: fields[1][1],
+      municipio: pick("municipio"),
+      uf: pick("uf")
     };
   }
 
@@ -1164,6 +1281,8 @@
       situacaoCadastral: d.descricao_situacao_cadastral,
       atividadePrincipal: d.cnae_fiscal_descricao,
       endereco: formatEndereco(d.logradouro, d.numero, d.municipio, d.uf),
+      municipio: d.municipio,
+      uf: d.uf,
       cep: d.cep,
       telefone: d.ddd_telefone_1,
       email: d.email
@@ -1178,6 +1297,8 @@
       situacaoCadastral: d.descricao_situacao_cadastral,
       atividadePrincipal: d.cnae_fiscal_descricao,
       endereco: formatEndereco(d.logradouro, d.numero, d.municipio, d.uf),
+      municipio: d.municipio,
+      uf: d.uf,
       cep: d.cep,
       telefone: d.ddd_telefone_1,
       email: d.email
