@@ -32,7 +32,7 @@
 
   #card {
     pointer-events: auto;
-    width: min(90vw, 460px);
+    width: min(92vw, 560px);
     max-height: 86vh;
     overflow-y: auto;
     padding: 40px 36px 34px;
@@ -521,6 +521,13 @@
   .ai-summary-columns .pontos-fortes h4 { color: rgba(110, 230, 180, 0.9); }
   .ai-summary-columns .pontos-fracos h4 { color: rgba(255, 150, 150, 0.85); }
 
+  @media (max-width: 480px) {
+    .ai-summary-columns {
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+  }
+
   .review-card {
     padding: 10px 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -558,6 +565,12 @@
     color: #cfe3f2;
     line-height: 1.5;
     margin: 0;
+  }
+
+  .avaliacoes-nota {
+    font-size: 10.5px;
+    color: #7a94a8;
+    margin: -6px 0 12px;
   }
 </style>
 </head>
@@ -922,7 +935,7 @@
         </p>
       `;
 
-    const avaliacoesHtml = buildAvaliacoesHtml(data.avaliacoes, data.resumoAvaliacoes);
+    const avaliacoesHtml = buildAvaliacoesHtml(data.avaliacoes, data.resumoAvaliacoes, data.nota, data.totalAvaliacoes);
 
     container.innerHTML = `
       <p class="source-title">Google Maps</p>
@@ -956,10 +969,20 @@
   }
 
   // monta o resumo da IA (se disponível) + a lista de comentários das avaliações
-  function buildAvaliacoesHtml(avaliacoes, resumo) {
+  function buildAvaliacoesHtml(avaliacoes, resumo, nota, totalAvaliacoes) {
+    const notaFormatada = nota != null ? nota.toFixed(1) : "—";
+    const totalTexto = totalAvaliacoes != null ? `${totalAvaliacoes} avaliações` : "sem avaliações";
+    const notaHtml = `
+      <div class="rating-row" style="margin-bottom: 12px;">
+        <span class="rating-score">${notaFormatada} ★</span>
+        <span class="rating-count">${totalTexto}</span>
+      </div>
+    `;
+
     if (!avaliacoes?.length) {
       return `
         <p class="transport-title">Avaliações dos clientes</p>
+        ${notaHtml}
         <p class="error-text" style="color:#8fb3d1;">Nenhuma avaliação com comentário disponível.</p>
       `;
     }
@@ -996,6 +1019,8 @@
 
     return `
       <p class="transport-title">Avaliações dos clientes</p>
+      ${notaHtml}
+      <p class="avaliacoes-nota">Análise baseada nas até 5 avaliações mais relevantes disponibilizadas pelo Google (não é o total de avaliações do local).</p>
       ${resumoHtml}
       ${comentariosHtml}
     `;
