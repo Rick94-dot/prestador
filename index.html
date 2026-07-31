@@ -738,10 +738,12 @@
     </div>
 
     <div id="results"></div>
+    <button id="export-excel-btn" class="feedback-submit-btn enabled" style="display:none; margin-top:14px;">📊 Exportar para Excel</button>
     <div id="icaro-feedback-panel" style="display:none;"></div>
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
 <script>
   // ============ CENA / CÂMERA / RENDER ============
@@ -963,6 +965,7 @@
   }
 
   let feedbackPendente = false;
+  let dadosColetados = { cnpj: null, google: null, operadoras: null };
   let buscaEmAndamento = false;
 
   function setButtonEnabled(cnpjValido) {
@@ -1013,6 +1016,9 @@
 
     const cnpjDigits = input.value.replace(/\D/g, "");
 
+    dadosColetados = { cnpj: null, google: null, operadoras: null };
+    document.getElementById("export-excel-btn").style.display = "none";
+
     resultsEl.classList.remove("visible");
     resultsEl.innerHTML = "";
     loadingEl.classList.add("visible");
@@ -1025,6 +1031,8 @@
     loadingEl.classList.remove("visible");
 
     const merged = renderResults(minhaReceita, brasilApi);
+    dadosColetados.cnpj = { "CNPJ": input.value, ...dadosColetados.cnpj };
+    document.getElementById("export-excel-btn").style.display = "block";
 
     // só busca no Google se a atividade principal do CNPJ for da área de odontologia —
     // evita que o usuário pesquise CNPJs de qualquer outro ramo neste app
@@ -1104,6 +1112,87 @@
     });
   }
 
+  // ============ EXPORTAÇÃO PARA EXCEL ============
+  document.getElementById("export-excel-btn").addEventListener("click", exportarParaExcel);
+
+  function formatarBooleano(valor) {
+    if (valor === true) return "Sim";
+    if (valor === false) return "Não";
+    return "Não informado";
+  }
+
+  function exportarParaExcel() {
+    const wb = XLSX.utils.book_new();
+
+    // ---- Aba 1: Dados do CNPJ ----
+    if (dadosColetados.cnpj) {
+      const wsCnpj = XLSX.utils.json_to_sheet([dadosColetados.cnpj]);
+      XLSX.utils.book_append_sheet(wb, wsCnpj, "Dados CNPJ");
+    }
+
+    // ---- Aba 2: Google Maps (resumo geral, sem fotos) ----
+    if (dadosColetados.google) {
+      const g = dadosColetados.google;
+      const linhaGoogle = {
+        "Nome (Google)": g.nome || "",
+        "Endereço (Google)": g.enderecoFormatado || "",
+        "Nota": g.nota ?? "",
+        "Total de avaliações": g.totalAvaliacoes ?? "",
+        "Aberto agora": formatarBooleano(g.abertoAgora),
+        "Pontos de ônibus próximos": g.transporte?.pontosOnibus ?? "",
+        "Estações de trem próximas": g.transporte?.estacoesTrem ?? "",
+        "Estações de metrô próximas": g.transporte?.estacoesMetro ?? "",
+        "Entrada acessível": formatarBooleano(g.acessibilidade?.entradaAcessivel),
+        "Estacionamento acessível": formatarBooleano(g.acessibilidade?.estacionamentoAcessivel),
+        "Banheiro acessível": formatarBooleano(g.acessibilidade?.banheiroAcessivel),
+        "Assentos acessíveis": formatarBooleano(g.acessibilidade?.assentosAcessiveis),
+        "Resumo das avaliações (IA)": g.resumoAvaliacoes?.resumoGeral || "",
+        "Pontos fortes (IA)": (g.resumoAvaliacoes?.pontosFortes || []).join("; "),
+        "Pontos fracos (IA)": (g.resumoAvaliacoes?.pontosFracos || []).join("; ")
+      };
+
+      // um dia da semana por coluna (ex.: "Segunda-feira": "09:00 – 18:00")
+      (g.horarioFuncionamento || []).forEach((linha) => {
+        const match = linha.match(/^([^:]+):\s*(.*)$/);
+        if (match) linhaGoogle[match[1]] = match[2];
+      });
+
+      const wsGoogle = XLSX.utils.json_to_sheet([linhaGoogle]);
+      XLSX.utils.book_append_sheet(wb, wsGoogle, "Google Maps");
+
+      // ---- Aba 3: avaliações individuais dos clientes ----
+      if (g.avaliacoes?.length) {
+        const linhasAvaliacoes = g.avaliacoes.map((a) => ({
+          "Autor": a.autor,
+          "Nota": a.nota,
+          "Quando": a.tempo,
+          "Comentário": a.texto
+        }));
+        const wsAvaliacoes = XLSX.utils.json_to_sheet(linhasAvaliacoes);
+        XLSX.utils.book_append_sheet(wb, wsAvaliacoes, "Avaliações");
+      }
+    }
+
+    // ---- Aba 4: presença nas operadoras (ODIN) ----
+    if (dadosColetados.operadoras) {
+      const linhasOperadoras = ORDEM_OPERADORAS.map((key) => {
+        const o = dadosColetados.operadoras[key] || {};
+        return {
+          "Operadora": OPERADORAS_LABELS[key],
+          "Disponível": formatarBooleano(o.disponivel),
+          "Credenciado": formatarBooleano(o.encontrado),
+          "Especialidades": (o.registro?.especialidades || []).join(", "),
+          "Total de prestadores na região": o.totalNaRegiao ?? "",
+          "Erro": o.erro || ""
+        };
+      });
+      const wsOperadoras = XLSX.utils.json_to_sheet(linhasOperadoras);
+      XLSX.utils.book_append_sheet(wb, wsOperadoras, "Operadoras");
+    }
+
+    const cnpjLimpo = (dadosColetados.cnpj?.["CNPJ"] || "cnpj").toString().replace(/\D/g, "") || "icaro";
+    XLSX.writeFile(wb, `icaro_${cnpjLimpo}.xlsx`);
+  }
   function liberarNovaBusca() {
     feedbackPendente = false;
     feedbackPanel.style.display = "none";
@@ -1115,11 +1204,9 @@
     feedback.textContent = "";
     feedback.classList.remove("ok");
 
-    resultsEl.innerHTML = "";
-    resultsEl.classList.remove("visible");
-
+    // não mexe em resultsEl nem dá scroll/focus — mantém a página exatamente
+    // onde o usuário estava, com os resultados anteriores ainda visíveis
     setButtonEnabled(false);
-    input.focus();
   }
 
   // rola a tela até o painel de feedback e pisca um aviso, chamado quando o
@@ -1175,6 +1262,7 @@
       }
 
       renderGoogleBlock(googleBlock, data);
+      dadosColetados.google = data;
       await buscarOperadoras(merged, cnpjDigits, data.localizacao);
     } catch (err) {
       console.error("Erro na busca do Google Places:", err);
@@ -1263,6 +1351,8 @@
 
       render(null);
     }
+
+    dadosColetados.operadoras = resultadosPorOperadora;
   }
 
   function renderOperadorasProgresso(container, resultados, operadoraEmAndamento) {
@@ -1564,6 +1654,8 @@
 
     resultsEl.appendChild(block);
     resultsEl.classList.add("visible");
+
+    dadosColetados.cnpj = Object.fromEntries(fields);
 
     return {
       nomeParaBusca: fields[1][1] !== "Não localizado" ? fields[1][1] : fields[0][1], // prefere nome fantasia, cai pro razão social
