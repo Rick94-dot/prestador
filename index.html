@@ -686,6 +686,30 @@
   .feedback-submit-btn.enabled:hover {
     filter: brightness(1.08);
   }
+
+  .feedback-shake {
+    animation: feedback-shake-kf 0.5s ease;
+  }
+
+  @keyframes feedback-shake-kf {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+  }
+
+  .feedback-aviso {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #ffb74a;
+    margin: 0 0 12px;
+    transition: opacity 0.5s ease;
+  }
+
+  .feedback-aviso.fade-out {
+    opacity: 0;
+  }
 </style>
 </head>
 <body>
@@ -939,11 +963,24 @@
   }
 
   let feedbackPendente = false;
+  let buscaEmAndamento = false;
 
-  function setButtonEnabled(enabled) {
-    const finalEnabled = enabled && !feedbackPendente;
-    button.disabled = !finalEnabled;
-    button.classList.toggle("enabled", finalEnabled);
+  function setButtonEnabled(cnpjValido) {
+    if (buscaEmAndamento) {
+      // busca rodando: bloqueio total, nem clique funciona
+      button.disabled = true;
+      button.classList.remove("enabled");
+      return;
+    }
+    if (feedbackPendente) {
+      // feedback pendente: parece bloqueado, mas o clique ainda funciona
+      // (pra poder rolar a tela até o feedback e avisar o usuário)
+      button.disabled = false;
+      button.classList.remove("enabled");
+      return;
+    }
+    button.disabled = !cnpjValido;
+    button.classList.toggle("enabled", cnpjValido);
   }
 
   input.addEventListener("input", (e) => {
@@ -964,14 +1001,21 @@
   const resultsEl = document.getElementById("results");
 
   button.addEventListener("click", async () => {
-    if (button.disabled) return;
+    if (feedbackPendente) {
+      avisarFeedbackPendente();
+      return;
+    }
+    if (buscaEmAndamento || button.disabled) return;
+
+    buscaEmAndamento = true;
+    setButtonEnabled(true); // cai no branch de "busca em andamento" e desabilita de verdade
+    input.disabled = true;
 
     const cnpjDigits = input.value.replace(/\D/g, "");
 
     resultsEl.classList.remove("visible");
     resultsEl.innerHTML = "";
     loadingEl.classList.add("visible");
-    setButtonEnabled(false);
 
     const [minhaReceita, brasilApi] = await Promise.allSettled([
       fetchMinhaReceita(cnpjDigits),
@@ -979,7 +1023,6 @@
     ]);
 
     loadingEl.classList.remove("visible");
-    setButtonEnabled(true);
 
     const merged = renderResults(minhaReceita, brasilApi);
 
@@ -993,13 +1036,15 @@
       await buscarGooglePlaces(merged.nomeParaBusca, merged.enderecoParaBusca, merged, cnpjDigits);
     }
 
-    bloquearAteFeedback(cnpjDigits);
+    buscaEmAndamento = false;
+    bloquearAteFeedback(cnpjDigits, merged.razaoSocial);
   });
+
 
   // ============ TRAVA DE FEEDBACK (só libera nova busca depois de avaliar) ============
   const feedbackPanel = document.getElementById("icaro-feedback-panel");
 
-  function bloquearAteFeedback(cnpjDigits) {
+  function bloquearAteFeedback(cnpjDigits, razaoSocial) {
     feedbackPendente = true;
     input.disabled = true;
     setButtonEnabled(false);
@@ -1043,7 +1088,7 @@
         const response = await fetch(`${API_BASE_URL}/api/feedback`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cnpj: cnpjDigits, nota: notaSelecionada, comentario })
+          body: JSON.stringify({ cnpj: cnpjDigits, razaoSocial, nota: notaSelecionada, comentario })
         });
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1075,6 +1120,29 @@
 
     setButtonEnabled(false);
     input.focus();
+  }
+
+  // rola a tela até o painel de feedback e pisca um aviso, chamado quando o
+  // usuário clica em "Buscar" mas ainda não avaliou a busca anterior
+  function avisarFeedbackPendente() {
+    feedbackPanel.scrollIntoView({ behavior: "smooth", block: "center" });
+    feedbackPanel.classList.add("feedback-shake");
+    setTimeout(() => feedbackPanel.classList.remove("feedback-shake"), 500);
+
+    let aviso = document.getElementById("feedback-aviso-temporario");
+    if (!aviso) {
+      aviso = document.createElement("p");
+      aviso.id = "feedback-aviso-temporario";
+      aviso.className = "feedback-aviso";
+      feedbackPanel.prepend(aviso);
+    }
+    aviso.textContent = "⚠️ Não esqueça de dar seu feedback!";
+    aviso.classList.remove("fade-out");
+
+    clearTimeout(avisarFeedbackPendente._timer);
+    avisarFeedbackPendente._timer = setTimeout(() => {
+      aviso.classList.add("fade-out");
+    }, 2500);
   }
 
   function mostrarBlocoNaoOdontologico() {
